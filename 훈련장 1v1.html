@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 71; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 72; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -4224,6 +4224,29 @@ function buildSoldier(opt) {
     const n = S(new THREE.CylinderGeometry(0.0015, 0.0015, 0.03, 5), new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.6 }), 0, 0, -0.05); n.rotation.x = Math.PI / 2; syr.add(n); }
   const band = S(new THREE.CylinderGeometry(0.02, 0.02, 0.035, 10), kitWhite, 0, 0, 0); heal.add(band);
   const wrap = S(new THREE.CylinderGeometry(0.056, 0.056, 0.01, 10), kitWhite, 0, 0, 0); hFoL.add(wrap); wrap.visible = false; // 팔에 감긴 붕대
+  // ---- 3인칭 파쿠르: 총은 내리고(숨기고) 두 손으로 모서리를 짚고 올라가요 (배그처럼) ----
+  const climb = new THREE.Group(); climb.position.set(0, 0.44, 0); climb.visible = false; spine.add(climb);
+  const cseg = () => { const m = new THREE.Mesh(segGeo, shirt); m.castShadow = true; climb.add(m); return m; };
+  const cUpL = cseg(), cFoL = cseg(), cUpR = cseg(), cFoR = cseg();
+  const cgl = () => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.047, 8, 6), glove); m.scale.set(1.1, 0.7, 1.3); climb.add(m); return m; };
+  const cHL = cgl(), cHR = cgl();
+  climb.add(S(new THREE.SphereGeometry(0.07, 8, 6), shirt, 0.2, 0, 0.02), S(new THREE.SphereGeometry(0.07, 8, 6), shirt, -0.2, 0, 0.02));
+  const cPoleL = new V3(-1, -0.3, 0.6), cPoleR = new V3(1, -0.3, 0.6);
+  const _cw = new V3(), _cr = new V3();
+  function climbPose(u, edge, yaw) {
+    // 손 짚기: 0~0.15 손을 뻗어 모서리로 → 0.15~0.72 모서리에 붙인 채 몸을 끌어올리고 밀기 → 그 뒤 손 떼기
+    const reach = _hs(0, 0.15, u), rel = _hs(0.72, 0.9, u);
+    climb.updateMatrixWorld(true);
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw); // 몸 오른쪽
+    for (const side of [-1, 1]) {
+      const sh = side < 0 ? sLh : sRh;
+      _cw.set(edge.x + rx * side * 0.2, edge.y + 0.03, edge.z + rz * side * 0.2); // 모서리 위 (어깨너비)
+      const tgt = climb.worldToLocal(_cw.clone());
+      const rest = new V3(side * 0.22, -0.35, -0.15); // 내려놓은 손
+      const H = rest.clone().lerp(tgt, reach * (1 - rel));
+      arm2(sh, H, side < 0 ? cPoleL : cPoleR, side < 0 ? cUpL : cUpR, side < 0 ? cFoL : cFoR, side < 0 ? cHL : cHR);
+    }
+  }
   const _hs = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   const sRh = new V3(0.2, 0, 0.02), sLh = new V3(-0.2, 0, 0.02), poleL = new V3(-1, -0.6, 0.3), poleR = new V3(1, -0.7, 0.4);
   const kitHand = new V3(-0.06, -0.3, -0.3), hRhome = new V3(0.16, -0.36, -0.2);
@@ -4332,7 +4355,8 @@ function buildSoldier(opt) {
       if (st.wallK > 0.02) { aim.rotation.x -= 0.95 * st.wallK; aim.position.z = 0.08 * st.wallK; } // 벽 앞: 총 내리기
       // 치료 중: 총·조준 팔은 숨기고 구급상자 쓰는 팔로 바꿔요 (화면을 돌려도 팔이 늘어나지 않게 시선과 상관없이)
       this.healClock = st.heal ? (this.healClock || 0) + dt : 0;
-      aim.visible = !st.heal; heal.visible = !!st.heal;
+      const climbing = st.vault >= 0 && st.vault < 0.93 && st.vaultEdge;
+      aim.visible = !st.heal && !climbing; heal.visible = !!st.heal && !climbing; climb.visible = !!climbing;
       if (st.heal) { heal.rotation.x = Math.PI / 2 * layK - spine.rotation.x; healPose(clamp(this.healClock / 6, 0, 1)); }
       // 3인칭 장전: 총을 살짝 기울이고 왼손으로 탄창을 빼서 버리고 새 탄창을 끼워요
       const g = this.gun, mag = g && g.userData.mag, mh = g && g.userData.magHome;
@@ -4378,6 +4402,7 @@ function buildSoldier(opt) {
         }
         spine.rotation.z = st.vaultOver ? -0.35 * over * (1 - end) : 0;
       }
+      if (climbing) climbPose(st.vault, st.vaultEdge, st.yaw || 0);
       if (st.stance === 'prone' || st.proneTr) {
         root.updateMatrixWorld(true);
         const baseY = root.getWorldPosition(_v1).y; let low = 9;
@@ -5055,7 +5080,7 @@ class Actor {
       const r = reach ? raycastWorld(c, f, reach) : null;
       this.wallK = damp(this.wallK || 0, r ? clamp(1 - (r.t - 0.3) / (reach - 0.3), 0, 1) : 0, 12, dt);
     }
-    s.animate({ wallK: this.wallK, speed: hsp, stance: this.stance, sprint: this.sprint && hsp > 3, air: !this.onGround && !this.vault, lean: this.lean, pitch: this.pitch, dead: this.dead, stanceH: s.body.position.y, reloadT: this.reloadT > 0 ? 1 - this.reloadT / (this.reloadDur || 1) : 0, vault: this.vault ? Math.min(1, this.vault.t) : (this.netVault >= 0 ? this.netVault : -1), vaultOver: this.vault ? this.vault.over : !!this.netVaultOver, proneTr: this.proneLock > 0 ? { p: 1 - this.proneLock / this.proneDur, down: this.stance === 'prone' } : null, thr: this.throwAnimT > 0 ? 1 - this.throwAnimT / 0.5 : 0, thrUnder: this.throwUnder, heal: this.healT > 0 || !!this.netHeal, pinUp: this.mode === 'throw' && this.pin }, dt);
+    s.animate({ wallK: this.wallK, speed: hsp, stance: this.stance, sprint: this.sprint && hsp > 3, air: !this.onGround && !this.vault, lean: this.lean, pitch: this.pitch, dead: this.dead, stanceH: s.body.position.y, reloadT: this.reloadT > 0 ? 1 - this.reloadT / (this.reloadDur || 1) : 0, vault: this.vault ? Math.min(1, this.vault.t) : (this.netVault >= 0 ? this.netVault : -1), vaultOver: this.vault ? this.vault.over : !!this.netVaultOver, vaultEdge: this.vault ? this.vault.edge : this.netEdge || null, yaw: this.yaw, proneTr: this.proneLock > 0 ? { p: 1 - this.proneLock / this.proneDur, down: this.stance === 'prone' } : null, thr: this.throwAnimT > 0 ? 1 - this.throwAnimT / 0.5 : 0, thrUnder: this.throwUnder, heal: this.healT > 0 || !!this.netHeal, pinUp: this.mode === 'throw' && this.pin }, dt);
     soldierHitboxes(s, this.hitbox);
     // 눈 위치 (기울이기 포함)
     const right = _v1.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -5118,7 +5143,7 @@ class Actor {
       to = new V3(this.pos.x + fx_ * dd, top, this.pos.z + fz * dd);
     }
     const dur = over ? (rise < 1.1 ? 0.55 : 0.75) : (rise < 1.2 ? 0.6 : rise < 2 ? 0.95 : 1.25);
-    this.vault = { t: 0, dur, from, to, top, over, rise };
+    this.vault = { t: 0, dur, from, to, top, over, rise, edge: new V3(this.pos.x + fx_ * (hitD + 0.04), top, this.pos.z + fz * (hitD + 0.04)) }; // edge: 손 짚을 모서리
     this.vel.set(0, 0, 0); this.ads = false; this.reloadT = 0; this.stance = 'stand';
     if (this.onVault) this.onVault(this.vault);
     return true;
@@ -7852,7 +7877,7 @@ function netRecv(m) {
       else if (m.m === 't') { if (r.mode !== 'throw' || r.throwType !== m.tt) { r.mode = 'throw'; r.throwType = m.tt; r.soldier.setGun(buildGrenadeModel(m.tt)); r.soldier.setArms('HG'); } }
       else if (r.weapons.length && (r.mode !== 'gun' || r.cur !== m.w)) { r.cur = clamp(m.w, 0, r.weapons.length - 1); r.mode = 'gun'; r.soldier.setGun(r.w.model); r.soldier.setArms(r.w.stats.cat); }
       r.reloadT = m.rl ? 1 - m.rl : 0; r.reloadDur = 1; // 장전 진행도 (상대 장전 동작도 맞게)
-      r.netVault = m.vt === undefined ? -1 : m.vt; r.netVaultOver = !!m.vo; r.netHeal = !!m.he;
+      r.netVault = m.vt === undefined ? -1 : m.vt; r.netVaultOver = !!m.vo; r.netEdge = m.ve ? (r.netEdge || new V3()).fromArray(m.ve) : null; r.netHeal = !!m.he;
       break;
     }
     case 'chat': { const r = REMOTES[from] || actorById(from); if (m.s === 'team' && (!r || r.team !== G.myTeam)) break; chatShow(m.s, m.n || (r && r.name) || '?', m.x, r && r.team !== G.myTeam ? 'en' : 'tm'); break; }
@@ -7938,7 +7963,7 @@ function netUpdate(dt) {
     netSend({
       t: 'st', ts: Math.round(performance.now()), p: [+p.pos.x.toFixed(3), +p.pos.y.toFixed(3), +p.pos.z.toFixed(3)], v: [+p.vel.x.toFixed(2), +p.vel.z.toFixed(2)], y: +p.yaw.toFixed(4), pi: +p.pitch.toFixed(4),
       s: STANCE_CODE[p.stance], l: +p.lean.toFixed(2), a: +p.adsT.toFixed(2), sp: p.sprint ? 1 : 0, h: Math.round(p.health * 10) / 10, d: p.dead ? 1 : 0,
-      hl: p.helmet.lv, hd: Math.round(p.helmet.dur), vl: p.vest.lv, vd: Math.round(p.vest.dur), w: p.cur, m: p.mode === 'throw' ? 't' : p.mode === 'fist' ? 'f' : 'g', tt: p.throwType, rl: p.reloadT > 0 ? Math.max(0.01, +(1 - p.reloadT / (p.reloadDur || 1)).toFixed(2)) : 0, vt: p.vault ? +Math.min(1, p.vault.t).toFixed(2) : -1, vo: p.vault && p.vault.over ? 1 : 0, he: p.healT > 0 ? 1 : 0,
+      hl: p.helmet.lv, hd: Math.round(p.helmet.dur), vl: p.vest.lv, vd: Math.round(p.vest.dur), w: p.cur, m: p.mode === 'throw' ? 't' : p.mode === 'fist' ? 'f' : 'g', tt: p.throwType, rl: p.reloadT > 0 ? Math.max(0.01, +(1 - p.reloadT / (p.reloadDur || 1)).toFixed(2)) : 0, vt: p.vault ? +Math.min(1, p.vault.t).toFixed(2) : -1, vo: p.vault && p.vault.over ? 1 : 0, ve: p.vault ? p.vault.edge.toArray().map(v => +v.toFixed(2)) : undefined, he: p.healT > 0 ? 1 : 0,
     }, '*', sid, batch);
     const lo = { t: 'lo', list: p.weapons.map(w => ({ id: w.id, att: w.att })) };
     const key = JSON.stringify(lo.list);
@@ -9526,6 +9551,55 @@ function netCheck() {
     i.addEventListener('input', () => { try { localStorage.setItem('tg1v1_server', i.value.trim()); } catch (e) {} info(); });
     info();
   }
+}
+
+// ================= 1인칭 파쿠르: 두 손으로 모서리를 짚고 올라가요 (배그처럼) =================
+const CLIMBVM = { g: null, hands: [], arms: [] };
+function buildClimbVM() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 2; i++) {
+    const hand = new THREE.Group();
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.03, 0.1), vmGlove); hand.add(palm);
+    for (let f = 0; f < 4; f++) { const fi = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.022, 0.05), vmGlove); fi.position.set(-0.03 + f * 0.02, -0.012, -0.065); fi.rotation.x = 0.7; hand.add(fi); } // 모서리를 감싸 쥔 손가락
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.042, 1, 10), vmSleeve);
+    g.add(hand, arm); CLIMBVM.hands.push(hand); CLIMBVM.arms.push(arm);
+  }
+  g.visible = false; VM.cam.add(g); CLIMBVM.g = g;
+}
+const _cv1 = new V3(), _cv2 = new V3(), _cvU = new V3(0, 1, 0);
+function updateClimbVM(p) {
+  if (!CLIMBVM.g) buildClimbVM();
+  const v = p.vault, on = v && v.edge && !p.dead && CAM.blend < 0.3;
+  CLIMBVM.g.visible = !!on; if (!on) return;
+  const u = Math.min(1, v.t), sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const reach = sm(0, 0.14, u) * (1 - sm(0.7, 0.88, u));
+  camera.updateMatrixWorld(true);
+  const right = _cv2.set(Math.cos(p.yaw), 0, -Math.sin(p.yaw));
+  for (let i = 0; i < 2; i++) {
+    const side = i ? 1 : -1, hand = CLIMBVM.hands[i], arm = CLIMBVM.arms[i];
+    // 모서리 위 (카메라 기준 좌표로 바꿔요)
+    const tgt = camera.worldToLocal(_cv1.set(v.edge.x + right.x * side * 0.24, v.edge.y + 0.02, v.edge.z + right.z * side * 0.24));
+    // 몸이 올라가면 모서리가 화면 아래로 빠져요 → 손은 화면 아래쪽에 보이게 붙잡아 둬요 (밀어 올리는 느낌)
+    tgt.z = Math.min(tgt.z, -0.5); tgt.y = Math.max(tgt.y, -0.34 * -tgt.z); tgt.x = clamp(tgt.x, -0.3 * -tgt.z, 0.3 * -tgt.z);
+    const rest = new V3(side * 0.3, -0.55, -0.35); // 화면 아래 밖
+    hand.position.copy(rest).lerp(tgt, reach);
+    hand.rotation.set(-0.15, -side * 0.15, 0);
+    hand.visible = reach > 0.02;
+    // 팔: 화면 아래 바깥 어깨 → 손
+    const sh = new V3(side * 0.32, -0.62, 0.15), d = hand.position.clone().sub(sh), L = Math.max(0.01, d.length());
+    arm.position.copy(sh).addScaledVector(d, 0.5); arm.scale.set(1, L, 1); arm.quaternion.setFromUnitVectors(_cvU, d.divideScalar(L)); arm.visible = hand.visible;
+  }
+}
+{
+  const _uvm2 = updateViewmodel;
+  updateViewmodel = function (dt, hsp) {
+    _uvm2(dt, hsp);
+    const p = PLAYER;
+    if (p) {
+      updateClimbVM(p);
+      if (p.vault && VM.gun) VM.gun.position.y -= 0.35 * (CAM.vaultK || 0); // 손으로 짚는 동안 총은 화면 아래로
+    }
+  };
 }
 
 // ================= 시작 =================
