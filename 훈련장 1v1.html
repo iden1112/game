@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 70; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 71; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -4574,7 +4574,9 @@ function updateBullets(dt) {
     const wr = raycastWorld(_bp, _bd, segL);
     let worldKind = null;
     if (wr) { hitT = wr.t; worldKind = wr.box.kind || 'solid'; _bn.copy(wr.normal); }
-    for (const a of ACTORS) {
+    // 친구가 쏜 총알(내 화면에서 보이기만 하는 것)은 사람을 맞히지 않아요.
+    // 맞았는지는 쏜 사람 화면이 정하고, 진짜 맞았을 때만 피가 튀어요 (예전엔 여기서 피가 튀어서, 달리는 사람이 피는 튀는데 피해가 없는 것처럼 보였어요)
+    if (!b.visual) for (const a of ACTORS) {
       if (a === b.owner || a.dead) continue;
       if (G.mode === 'mp' && a.team !== undefined && a.team === b.owner.team) continue; // 같은 팀은 안 맞음
       if (a.pos.distanceToSquared(_bp) > (segL + 3) * (segL + 3)) continue;
@@ -4605,7 +4607,7 @@ function updateBullets(dt) {
     let done = b.age > 3 || b.pos.y < -5 || Math.abs(b.pos.x) > 900 || Math.abs(b.pos.z) > 900;
     if (hitActor) {
       const hp = _v3.copy(_bp).addScaledVector(_bd, hitT);
-      if (b.visual) bloodFX(hp, _bd, hitPart === 'head'); else bulletHit(b, hitActor, hitPart, hp, _bd);
+      bulletHit(b, hitActor, hitPart, hp, _bd);
       done = true;
     } else if (wr) {
       const hp = _v3.copy(_bp).addScaledVector(_bd, hitT);
@@ -4640,6 +4642,7 @@ function falloffMul(st, d) {
 function bulletHit(b, victim, part, hp, dir) {
   if (victim.remote) { // 친구 캐릭터: 피해 계산은 친구 쪽에서
     bloodFX(hp, dir, part === 'head');
+    netSend({ t: 'bfx', hp: hp.toArray().map(v => +v.toFixed(2)), dir: dir.toArray().map(v => +v.toFixed(2)), h: part === 'head' ? 1 : 0, v: victim.netId }, '*'); // 다른 사람 화면에도 진짜 맞은 피만
     netSend({ t: 'hit', id: b.st.def.id, att: b.owner.w ? b.owner.w.att : null, dmg: b.dmg, wm: b.wallMul || undefined, part, dist: b.dist, hp: hp.toArray(), dir: dir.toArray() }, victim.netId, b.owner === PLAYER ? NET.id : b.owner.netId);
     if (b.owner === PLAYER) { HUD.hitMarker(false, part === 'head'); AU.hit(part === 'head'); }
     return;
@@ -7867,6 +7870,7 @@ function netRecv(m) {
       break;
     }
     case 'dealt': recordDealt(m.n, m.d); break;
+    case 'bfx': { if (m.v === NET.id || (NET.host && NET.bots[m.v])) break; bloodFX(new V3().fromArray(m.hp), new V3().fromArray(m.dir), !!m.h); break; } // 진짜 맞은 자리에 피
     case 'hit': { // 누가 나(또는 방장의 AI)를 맞힘 → 맞은 쪽에서 피해 계산
       const r = REMOTES[from];
       const victim = NET.host && NET.bots[m.to] ? NET.bots[m.to] : PLAYER;
