@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 69; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 70; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -4127,6 +4127,7 @@ function limbMesh(a, b, r1, r2, mat) {
   m.castShadow = true;
   return m;
 }
+const _UPV = new V3(0, 1, 0);
 function buildSoldier(opt) {
   const skin = new THREE.MeshStandardMaterial({ color: opt.skin || 0xd2a07a, roughness: 0.8 });
   const shirt = new THREE.MeshStandardMaterial({ color: opt.shirt, roughness: 0.9 });
@@ -4193,6 +4194,62 @@ function buildSoldier(opt) {
     arms.add(S(new THREE.SphereGeometry(0.07, 8, 6), shirt, 0.2, 0, 0.02), S(new THREE.SphereGeometry(0.07, 8, 6), shirt, -0.2, 0, 0.02));
   }
   setArms('AR');
+
+  // ---- 3인칭 구급상자 쓰기: 총은 등 뒤로 치우고, 왼손에 상자, 오른손으로 주사기 꽂고 붕대 감기 ----
+  const heal = new THREE.Group(); heal.position.set(0, 0.44, 0); heal.visible = false; spine.add(heal);
+  const segGeo = new THREE.CylinderGeometry(0.05, 0.044, 1, 8);
+  const seg = () => { const m = new THREE.Mesh(segGeo, shirt); m.castShadow = true; heal.add(m); return m; };
+  const fitSeg = (m, a, b) => { const d = _v1.copy(b).sub(a), L = d.length(); m.position.copy(a).addScaledVector(d, 0.5); m.scale.set(1, L, 1); m.quaternion.setFromUnitVectors(_UPV, d.normalize()); };
+  // 두 마디 팔: 어깨 → (팔꿈치) → 손. 팔 길이가 늘어나지 않게 손이 너무 멀면 당겨요
+  const arm2 = (sh, hand, pole, up, fo, hm) => {
+    const d = _v2.copy(hand).sub(sh); let L = d.length(); const A = 0.27, B = 0.27;
+    if (L > A + B - 0.01) { d.multiplyScalar((A + B - 0.01) / L); hand.copy(sh).add(d); L = A + B - 0.01; }
+    const a = (A * A - B * B + L * L) / (2 * L), h = Math.sqrt(Math.max(0, A * A - a * a));
+    const dir = d.clone().normalize(), pv = pole.clone().sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
+    const el = sh.clone().addScaledVector(dir, a).addScaledVector(pv, h);
+    fitSeg(up, sh, el); fitSeg(fo, el, hand); hm.position.copy(hand);
+  };
+  const hUpL = seg(), hFoL = seg(), hUpR = seg(), hFoR = seg();
+  const gl = () => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), glove); heal.add(m); return m; };
+  const hHL = gl(), hHR = gl();
+  heal.add(S(new THREE.SphereGeometry(0.07, 8, 6), shirt, 0.2, 0, 0.02), S(new THREE.SphereGeometry(0.07, 8, 6), shirt, -0.2, 0, 0.02));
+  const kitRed = new THREE.MeshStandardMaterial({ color: 0xb02a22, roughness: 0.7 }), kitWhite = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.6 });
+  const kit = new THREE.Group(); heal.add(kit);
+  kit.add(S(new THREE.BoxGeometry(0.17, 0.05, 0.11), kitRed, 0, 0, 0));
+  const kitLid = new THREE.Group(); kitLid.position.set(0, 0.025, 0.055); kit.add(kitLid);
+  kitLid.add(S(new THREE.BoxGeometry(0.172, 0.014, 0.112), kitRed, 0, 0.007, -0.056));
+  kitLid.add(S(new THREE.BoxGeometry(0.05, 0.003, 0.016), kitWhite, 0, 0.015, -0.056), S(new THREE.BoxGeometry(0.016, 0.003, 0.05), kitWhite, 0, 0.015, -0.056));
+  const syr = new THREE.Group(); heal.add(syr);
+  { const t = S(new THREE.CylinderGeometry(0.008, 0.008, 0.07, 8), new THREE.MeshStandardMaterial({ color: 0xe8eef2, roughness: 0.3 }), 0, 0, 0); t.rotation.x = Math.PI / 2; syr.add(t);
+    const n = S(new THREE.CylinderGeometry(0.0015, 0.0015, 0.03, 5), new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.6 }), 0, 0, -0.05); n.rotation.x = Math.PI / 2; syr.add(n); }
+  const band = S(new THREE.CylinderGeometry(0.02, 0.02, 0.035, 10), kitWhite, 0, 0, 0); heal.add(band);
+  const wrap = S(new THREE.CylinderGeometry(0.056, 0.056, 0.01, 10), kitWhite, 0, 0, 0); hFoL.add(wrap); wrap.visible = false; // 팔에 감긴 붕대
+  const _hs = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const sRh = new V3(0.2, 0, 0.02), sLh = new V3(-0.2, 0, 0.02), poleL = new V3(-1, -0.6, 0.3), poleR = new V3(1, -0.7, 0.4);
+  const kitHand = new V3(-0.06, -0.3, -0.3), hRhome = new V3(0.16, -0.36, -0.2);
+  function healPose(k) {
+    const show = _hs(0, 0.07, k) * (1 - _hs(0.93, 1, k));
+    const kh = kitHand.clone().lerp(new V3(-0.18, -0.5, -0.05), 1 - show);
+    kit.position.copy(kh).add(_v3.set(0.03, 0.04, -0.02)); kit.rotation.set(0.25, 0.3, 0);
+    kitLid.rotation.x = -1.6 * _hs(0.1, 0.18, k) * (1 - _hs(0.86, 0.92, k));
+    arm2(sLh, kh.clone(), poleL, hUpL, hFoL, hHL);
+    // 왼쪽 아래팔 가운데 (주사·붕대 자리)
+    const armSpot = hFoL.position.clone().add(_v3.set(0.03, 0.04, 0));
+    const inBox = kit.position.clone().add(_v3.set(0.02, 0.05, 0));
+    const H = new V3();
+    if (k < 0.22) H.copy(hRhome).lerp(inBox, _hs(0.1, 0.22, k));
+    else if (k < 0.3) H.copy(inBox);
+    else if (k < 0.4) H.copy(inBox).lerp(armSpot, _hs(0.3, 0.4, k));
+    else if (k < 0.5) { H.copy(armSpot); H.z += 0.015 * Math.sin((k - 0.4) * 60); }
+    else if (k < 0.6) H.copy(armSpot).lerp(inBox, _hs(0.5, 0.6, k));
+    else if (k < 0.68) H.copy(inBox).lerp(armSpot, _hs(0.62, 0.68, k));
+    else if (k < 0.84) { const a = (k - 0.68) * 70; H.copy(armSpot); H.y += Math.sin(a) * 0.05; H.z += Math.cos(a) * 0.05; }
+    else H.copy(armSpot).lerp(hRhome, _hs(0.84, 0.94, k));
+    arm2(sRh, H, poleR, hUpR, hFoR, hHR);
+    syr.visible = k > 0.22 && k < 0.52; syr.position.copy(hHR.position).add(_v3.set(-0.03, 0, -0.02)); syr.rotation.set(0, 0.9, 0);
+    band.visible = k > 0.58 && k < 0.84; band.position.copy(hHR.position).add(_v3.set(-0.03, 0.01, 0)); band.rotation.set(0, 0, Math.PI / 2);
+    wrap.visible = k > 0.72 && k < 0.95; wrap.position.set(0, 0.1, 0);
+  }
 
   const pelvis = new THREE.Object3D(); body.add(pelvis);
   const S_ = {
@@ -4273,7 +4330,10 @@ function buildSoldier(opt) {
         else { aim.rotation.x += 0.9 * back * (1 - k) - 0.8 * sw * (1 - k); aim.rotation.z = -0.35 * back * (1 - k); }
       } else if (st.pinUp) { aim.rotation.x += 0.45; aim.rotation.z = -0.2; }
       if (st.wallK > 0.02) { aim.rotation.x -= 0.95 * st.wallK; aim.position.z = 0.08 * st.wallK; } // 벽 앞: 총 내리기
-      if (st.heal) { aim.rotation.x -= 1.0; aim.rotation.y += 0.35; } // 치료 중: 총을 아래로 내려요
+      // 치료 중: 총·조준 팔은 숨기고 구급상자 쓰는 팔로 바꿔요 (화면을 돌려도 팔이 늘어나지 않게 시선과 상관없이)
+      this.healClock = st.heal ? (this.healClock || 0) + dt : 0;
+      aim.visible = !st.heal; heal.visible = !!st.heal;
+      if (st.heal) { heal.rotation.x = Math.PI / 2 * layK - spine.rotation.x; healPose(clamp(this.healClock / 6, 0, 1)); }
       // 3인칭 장전: 총을 살짝 기울이고 왼손으로 탄창을 빼서 버리고 새 탄창을 끼워요
       const g = this.gun, mag = g && g.userData.mag, mh = g && g.userData.magHome;
       if (g && g.userData.brk) { const rk0 = st.reloadT || 0; g.userData.brk.rotation.x = rk0 > 0 ? -0.75 * Math.min(1, Math.max(0, (rk0 - 0.06) / 0.1)) * (1 - Math.min(1, Math.max(0, (rk0 - 0.8) / 0.06))) : 0; }
@@ -4317,6 +4377,12 @@ function buildSoldier(opt) {
           }
         }
         spine.rotation.z = st.vaultOver ? -0.35 * over * (1 - end) : 0;
+      }
+      if (st.stance === 'prone' || st.proneTr) {
+        root.updateMatrixWorld(true);
+        const baseY = root.getWorldPosition(_v1).y; let low = 9;
+        for (const m of [legs[-1].knee, legs[1].knee, legs[-1].foot, legs[1].foot]) low = Math.min(low, m.getWorldPosition(_v2).y - baseY);
+        if (low < 0.07) body.position.y += 0.07 - low;
       }
     },
   };
