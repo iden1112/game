@@ -1,0 +1,16 @@
+# Blender MTL File: 'None'
+# Material Count: 1
+
+newmtl map_Shotgun01
+Ns 10.000005
+Ka 1.000000 1.000000 1.000000
+Kd 0.156900 0.129400 0.098000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 1
+map_Bump 3dexport_shotgun_obj_1612626082\\map_Shotgun01_Normal_OpenGL.png
+map_Kd 3dexport_shotgun_obj_1612626082\\map_Shotgun01_BaseColor.png
+map_Ns 3dexport_shotgun_obj_1612626082\\map_Shotgun01_Roughness.png
+refl 3dexport_shotgun_obj_1612626082\\map_Shotgun01_Metallic.png
