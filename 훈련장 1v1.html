@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 74; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 75; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -1076,6 +1076,7 @@ const SETTINGS = {
   aimMode: 'pubg', crouchMode: 'toggle', leanMode: 'hold', sprintMode: 'hold', nick: '', quality: 'mid',
   xh: { preset: 'pubg', color: '#ffffff', len: 10, th: 2, gap: 4, dot: 0, out: 1, dyn: 1 }, ret: {},
 };
+const SETTINGS_DEFAULT = JSON.parse(JSON.stringify(SETTINGS)); // 처음 값 (로그아웃할 때 손님 설정으로 되돌릴 때 씀)
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('tg1v1_settings') || '{}')); } catch (e) {}
 function saveSettings() { try { localStorage.setItem('tg1v1_settings', JSON.stringify(SETTINGS)); } catch (e) {} }
 
@@ -6573,7 +6574,8 @@ function attSummary(a) {
 // ================= 게임 진행 =================
 const G = { myTeam: 0, state: 'menu', mode: 'arena', time: 0, round: 0, score: [0, 0], shake: 0, preT: 0, roundT: 0, postT: 0, menuOpen: false, paused: false, winTo: 7 };
 const ROUND_TIME = 150;
-let LOADOUT = { slots: [{ id: 'm416', scope: 'reddot', muzzle: 'comp', grip: 'vert' }, { id: 'kar98k', scope: '8x', muzzle: 'supp' }, { id: 'p92', muzzle: 'supp' }] };
+const LOADOUT_BASE = { slots: [{ id: 'm416', scope: 'reddot', muzzle: 'comp', grip: 'vert' }, { id: 'kar98k', scope: '8x', muzzle: 'supp' }, { id: 'p92', muzzle: 'supp' }] };
+let LOADOUT = JSON.parse(JSON.stringify(LOADOUT_BASE));
 try { const s = JSON.parse(localStorage.getItem('tg1v1_loadout') || 'null'); if (s && s.slots && s.slots.every(x => WEAPONS[x.id])) LOADOUT = s; } catch (e) {}
 // 배그처럼: 1·2번은 주무기, 3번은 권총
 (function fixLoadoutSlots() {
@@ -8947,7 +8949,7 @@ function socAccount(uid) {
   SOC.acctReady = false;
   SOC.acctP = (async () => {
     if (!SOC.data.devId) SOC.data.devId = /^a/.test(SOC.data.id) && SOC.data.acct ? Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('') : SOC.data.id;
-    if (!uid) { if (SOC.data.id !== SOC.data.devId) { SOC.data.id = SOC.data.devId; SOC.data.reg = false; socSave(); socReconnect(); } return; } // 로그아웃: 기기 번호로
+    if (!uid) { if (typeof cloudLogout === 'function') cloudLogout(); if (SOC.data.id !== SOC.data.devId) { SOC.data.id = SOC.data.devId; SOC.data.reg = false; socSave(); socReconnect(); } return; } // 로그아웃: 기기 번호로
     const aid = 'a' + uid;
     if (SOC.data.id !== aid) {
       if (SOC.data.acct && SOC.data.acct !== uid) { SOC.data.friends = []; SOC.data.nick = ''; SOC.data.nickTs = 0; SOC.data.oldIds = []; } // 다른 계정: 이 기기에 남은 남의 친구 목록은 안 써요
@@ -8959,8 +8961,8 @@ function socAccount(uid) {
     if (a) {
       if (a.nick && (!SOC.data.nick || (a.nickTs || 0) > (SOC.data.nickTs || 0))) { SOC.data.nick = a.nick; SOC.data.nickTs = a.nickTs || 0; applyNick(a.nick); } // 다른 컴퓨터에서 바꾼 닉네임
       for (const f of a.friends || []) { const o = friendById(f.id); if (!o) SOC.data.friends.push({ id: f.id, nick: f.nick }); }
-      if (typeof cloudApply === 'function') cloudApply(a); // 다른 컴퓨터에서 바꾼 설정·총 구성
     }
+    if (typeof cloudLogin === 'function') cloudLogin(a); // 계정에 저장된 설정·총 구성 쓰기 (이 컴퓨터엔 저장 안 해요)
     SOC.acctReady = true; socSave(); socAcctPush(true); socReconnect(); socUI();
   })();
   return SOC.acctP;
@@ -9668,47 +9670,46 @@ function updateClimbVM(p) {
   };
 }
 
-// ================= 로그인하면 설정(감도·조준선·키·화면·소리)과 총 구성을 계정에 저장 =================
-// 어느 컴퓨터에서 로그인해도 마지막에 바꾼 설정으로 맞춰져요
+// ================= 로그인하면 설정(감도·조준선·키·화면·소리)과 총 구성을 계정에만 저장 =================
+// 로그인한 동안 바꾼 설정은 이 컴퓨터에 남기지 않고 계정에만 저장해요 (학교 컴퓨터처럼 같이 쓰는 컴퓨터용)
+// 로그아웃하면 이 컴퓨터의 원래(손님) 설정으로 돌아가고, 다른 컴퓨터에서 로그인하면 계정 설정을 그대로 불러와요
 const CLOUD_SKIP = new Set(['nick']); // 닉네임은 따로 (계정 닉네임)
-function localSetTs() { try { return +localStorage.getItem('tg1v1_set_ts') || 0; } catch (e) { return 0; } }
+const CLOUD = { on: false };
 function cloudSettings() {
+  if (!CLOUD.on) return {}; // 계정 설정을 불러오기 전엔 보내지 않아요
   const s = {}; for (const k in SETTINGS) if (!CLOUD_SKIP.has(k)) s[k] = SETTINGS[k];
-  return { settings: s, loadout: LOADOUT, setTs: localSetTs() };
+  return { settings: s, loadout: LOADOUT, setTs: Date.now() };
 }
-// 설정이나 총 구성을 바꾸면 시각을 적고 계정에도 보내요
+const LOADOUT_DEFAULT = JSON.parse(JSON.stringify(LOADOUT_BASE));
 {
   const _ss = saveSettings, _sl = saveLoadout;
-  let quiet = true; setTimeout(() => { quiet = false; }, 1500); // 게임을 켤 때 처음 저장하는 건 '바꾼 것'으로 안 쳐요
-  // 실제로 값이 바뀌었을 때만 '바꾼 시각'을 적어요 (게임을 켤 때 저장되는 건 빼고)
-  // 비교할 때 닉네임은 빼요 (닉네임은 계정 닉네임으로 따로 맞춰요)
-  const snap = () => JSON.stringify(cloudSettings().settings) + JSON.stringify(LOADOUT);
-  let last = null;
-  const wrap = (orig) => function () {
-    orig();
-    const now = snap();
-    if (quiet || last === null) { last = now; return; }
-    if (now === last) return;
-    last = now;
-    try { localStorage.setItem('tg1v1_set_ts', String(Date.now())); } catch (e) {}
-    if (typeof socAcctPush === 'function' && authUid()) socAcctPush();
+  // 로그인 중: 컴퓨터에 쓰지 않고 계정에만 / 손님: 컴퓨터에 저장
+  saveSettings = function () { if (CLOUD.on) { if (typeof socAcctPush === 'function') socAcctPush(); return; } _ss(); };
+  saveLoadout = function () { if (CLOUD.on) { if (typeof socAcctPush === 'function') socAcctPush(); return; } _sl(); };
+  const setAll = (obj, lo) => {
+    const nick = SETTINGS.nick;
+    for (const k of Object.keys(SETTINGS)) if (!CLOUD_SKIP.has(k) && !(k in obj) && !(k in SETTINGS_DEFAULT)) delete SETTINGS[k];
+    for (const k in SETTINGS_DEFAULT) if (!CLOUD_SKIP.has(k)) SETTINGS[k] = JSON.parse(JSON.stringify(SETTINGS_DEFAULT[k]));
+    for (const k in obj) if (!CLOUD_SKIP.has(k)) SETTINGS[k] = obj[k];
+    SETTINGS.nick = nick;
+    if (lo && lo.slots && lo.slots.every(x => WEAPONS[x.id])) LOADOUT = JSON.parse(JSON.stringify(lo));
+    try { if (PLAYER) PLAYER.setLoadout(playerLoadoutList()); } catch (e) {}
+    try { renderLoadout(); } catch (e) {}
+    refreshSettingsUI();
   };
-  saveSettings = wrap(_ss);
-  saveLoadout = wrap(_sl);
-  setTimeout(() => { if (last === null) last = snap(); }, 1500);
-  // 계정의 설정이 더 최근이면 이 컴퓨터에 적용해요
-  window.cloudApply = function (a) {
-    if (!a || !a.settings || !((a.setTs || 0) > localSetTs())) return;
-    quiet = true;
-    try {
-      const nick = SETTINGS.nick;
-      for (const k in a.settings) if (!CLOUD_SKIP.has(k)) SETTINGS[k] = a.settings[k];
-      SETTINGS.nick = nick;
-      if (a.loadout && a.loadout.slots && a.loadout.slots.every(x => WEAPONS[x.id])) { LOADOUT = a.loadout; _sl(); if (typeof playerLoadoutList === 'function' && PLAYER) PLAYER.setLoadout(playerLoadoutList()); try { renderLoadout(); } catch (e) {} }
-      _ss(); last = snap(); try { localStorage.setItem('tg1v1_set_ts', String(a.setTs)); } catch (e) {}
-      refreshSettingsUI();
-      try { HUD.toast('계정에 저장된 설정을 불러왔어요'); } catch (e) {}
-    } finally { quiet = false; }
+  // 로그인 (계정 정보를 다 불러온 뒤): 계정 설정이 있으면 쓰고, 없으면 지금 설정을 계정의 첫 설정으로 올려요
+  window.cloudLogin = function (a) {
+    if (a && a.settings) { setAll(a.settings, a.loadout); try { HUD.toast('계정에 저장된 설정을 불러왔어요'); } catch (e) {} }
+    CLOUD.on = true;
+  };
+  // 로그아웃: 이 컴퓨터의 손님 설정으로 되돌려요
+  window.cloudLogout = function () {
+    if (!CLOUD.on) return;
+    CLOUD.on = false;
+    let g = {}, lo = null;
+    try { g = JSON.parse(localStorage.getItem('tg1v1_settings') || '{}'); } catch (e) {}
+    try { lo = JSON.parse(localStorage.getItem('tg1v1_loadout') || 'null'); } catch (e) {}
+    setAll(g, lo || LOADOUT_DEFAULT);
   };
 }
 // 설정 화면 값들을 SETTINGS 에 맞게 다시 채우고 바로 적용
