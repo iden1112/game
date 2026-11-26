@@ -20,7 +20,9 @@ npm start
 
 ## 새 버전 올리기
 
-게임은 시작할 때 `https://iden1112.github.io/game/version.json`을 확인해서, 더 높은 버전이 있으면 시작 화면에 업데이트 알림을 띄웁니다. (GitHub Pages가 켜져 있어야 동작)
+웹사이트: **https://training-1v1.onrender.com** (Render에서 `server.js` 실행)
+
+파일로 받아서 연 게임은 시작할 때 `https://training-1v1.onrender.com/version.json`을 확인해서, 더 높은 버전이 있으면 시작 화면에 업데이트 알림을 띄웁니다. 웹사이트로 연 게임은 항상 최신이라 확인하지 않습니다.
 
 1. `훈련장 1v1.html`에서 `GAME_BUILD` 숫자를 1 올립니다.
 2. `version.json`의 `build`를 같은 숫자로 맞추고, `note`에 바뀐 내용을 짧게 적습니다.
