@@ -1058,7 +1058,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 67; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 68; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -8597,7 +8597,7 @@ function stopPlayerInput() {
 // 서버 없이 공개 MQTT 서버의 '남겨두기(retained)' 메시지로 닉네임·친구 요청을 저장해요.
 // 닉네임 주인 = 이 기기에 저장된 비밀 번호(id). 같은 닉네임은 다른 기기가 못 써요.
 const SOC = {
-  P: 'tg1v1s/v1/', ok: false, tried: 0,
+  P: 'tg1v1s/v2/', ok: false, tried: 0, // v2: 닉네임은 로그인한 회원만 서버에 등록 (v1은 예전 버전 자료)
   data: { id: '', nick: '', reg: false, friends: [] }, // friends: [{ id, nick }] — 친구는 '기기 번호(id)'로 기억해요 (이름을 바꿔도 같은 친구)
   reqIn: new Map(),     // 받은 친구 요청: id → { nick, ts }
   sent: new Set(),
@@ -8606,6 +8606,8 @@ const SOC = {
 };
 try { Object.assign(SOC.data, JSON.parse(localStorage.getItem('tg1v1_social') || '{}')); } catch (e) {}
 if (!SOC.data.id) SOC.data.id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+if (SOC.data.v !== 2) { SOC.data.reg = false; SOC.data.v = 2; } // v2로 바뀌면 로그인 후 다시 등록해요
+function authUid() { return window.__authUid || ''; } // 로그인한 회원의 Firebase uid (비회원은 '')
 SOC.data.friends = (SOC.data.friends || []).map(f => typeof f === 'string' ? { id: '', nick: f } : f); // 예전 저장(이름만) 바꾸기
 const socSave = () => { try { localStorage.setItem('tg1v1_social', JSON.stringify(SOC.data)); } catch (e) {} };
 socSave();
@@ -8639,14 +8641,14 @@ function socConnect() {
 function socReconnect() { for (const c of SOC.cls) try { c.cl.end(true); } catch (e) {} SOC.cls = []; SOC.ok = false; socConnect(); }
 function friendTopics(f) { return f.id ? ['on/' + f.id, 'u/' + f.id] : ['nick/' + nkey(f.nick)]; } // id 모르는 예전 친구는 이름으로 id 찾기
 function socSubscribe(c) {
-  if (!SOC.data.nick || !SOC.data.reg) return;
+  if (!SOC.data.nick || !SOC.data.reg || !authUid()) return; // 회원만 서버에 닉네임을 올려요
   const me = SOC.data.id;
   try {
     const t = ['req/' + nkey(SOC.data.nick) + '/+', 'acc/' + me + '/+', 'inv/' + me, 'dm/' + me].concat(...SOC.data.friends.map(friendTopics));
     c.cl.subscribe(t.map(x => SOC.P + x), { qos: 1 });
     c.cl.publish(SOC.P + 'on/' + me, JSON.stringify({ on: 1, ts: Date.now() }), { retain: true, qos: 1 });
     c.cl.publish(SOC.P + 'u/' + me, JSON.stringify({ nick: SOC.data.nick, ts: Date.now() }), { retain: true, qos: 1 }); // 내 지금 이름 (친구들이 이걸 보고 이름을 바꿔요)
-    c.cl.publish(SOC.P + 'nick/' + nkey(SOC.data.nick), JSON.stringify({ id: me, nick: SOC.data.nick, ts: Date.now() }), { retain: true, qos: 1 });
+    c.cl.publish(SOC.P + 'nick/' + nkey(SOC.data.nick), JSON.stringify({ id: me, uid: authUid(), nick: SOC.data.nick, ts: Date.now() }), { retain: true, qos: 1 });
   } catch (e) {}
 }
 setInterval(() => { if (SOC.ok && SOC.data.reg) socPub('on/' + SOC.data.id, { on: 1, ts: Date.now() }, true); }, 60000);
@@ -8707,11 +8709,12 @@ async function socClaimNick(nick) {
   nick = String(nick || '').trim().slice(0, 12);
   if (nick.length < 2) return '두 글자 이상으로 정해 주세요';
   if (/[\/#+]/.test(nick)) return '/ # + 는 쓸 수 없어요';
-  if (!SOC.ok) { SOC.data.nick = nick; SOC.data.reg = false; socSave(); applyNick(nick); return ''; }
+  const uid = authUid();
+  if (!SOC.ok || !uid) { SOC.data.nick = nick; SOC.data.reg = false; socSave(); applyNick(nick); return ''; } // 비회원: 이 기기에만 저장
   const cur = await socPeek('nick/' + nkey(nick));
-  if (cur && cur.id && cur.id !== SOC.data.id) return '이미 누가 쓰는 닉네임이에요';
+  if (cur && cur.uid && cur.uid !== uid) return '이미 누가 쓰는 닉네임이에요'; // 닉네임 주인 = 회원 계정
   const old = SOC.data.nick && SOC.data.reg && nkey(SOC.data.nick) !== nkey(nick) ? SOC.data.nick : null;
-  socPub('nick/' + nkey(nick), { id: SOC.data.id, nick, ts: Date.now() }, true);
+  socPub('nick/' + nkey(nick), { id: SOC.data.id, uid, nick, ts: Date.now() }, true);
   socPub('u/' + SOC.data.id, { nick, ts: Date.now() }, true); // 친구들 화면의 내 이름도 바뀌어요
   if (old) socPub('nick/' + nkey(old), null, true);
   SOC.data.nick = nick; SOC.data.reg = true; socSave(); applyNick(nick);
@@ -8722,12 +8725,13 @@ function applyNick(n) {
   SETTINGS.nick = n; saveSettings(); NET.name = n; PLAYER.name = n;
   for (const id of ['start-nick', 'mp-name']) if ($(id)) $(id).value = n;
 }
-setInterval(() => { if (SOC.ok && SOC.data.nick && !SOC.data.reg && !SOC.claiming) { SOC.claiming = true; socClaimNick(SOC.data.nick).then((e) => { SOC.claiming = false; if (e) { SOC.data.nick = ''; socSave(); openNick(e); } }); } }, 4000);
+setInterval(() => { if (SOC.ok && authUid() && SOC.data.nick && !SOC.data.reg && !SOC.claiming) { SOC.claiming = true; socClaimNick(SOC.data.nick).then((e) => { SOC.claiming = false; if (e) { SOC.data.nick = ''; socSave(); openNick(e); } }); } }, 4000);
 
 // ---- 친구 요청 / 수락 / 초대 ----
 async function socAddFriend(name) {
   name = String(name || '').trim();
   if (!name) return '친구 닉네임을 입력하세요';
+  if (!authUid()) return '친구 기능은 로그인한 회원만 쓸 수 있어요 (시작 화면에서 로그인)';
   if (!SOC.data.reg) return '먼저 내 닉네임을 등록해야 해요 (서버 연결 중)';
   if (nkey(name) === nkey(SOC.data.nick)) return '나 자신은 친구로 추가할 수 없어요';
   if (SOC.data.friends.some(f => nkey(f.nick) === nkey(name))) return '이미 친구예요';
@@ -8843,7 +8847,7 @@ function socUI() {
   if (!$('fr-me')) return;
   $('fr-me').textContent = SOC.data.nick || '(아직 없음)';
   const sv = SOC.cls.map(c => `${c.name} ${c.ok ? '✓' : '✗'}`).join(' · ');
-  $('fr-srv').textContent = SOC.ok ? `친구 서버 연결됨 (${sv}) · ${SOC.data.reg ? '내 닉네임 등록됨' : '내 닉네임 등록 중…'}` : SOC.tried >= 4 ? `친구 서버에 연결하지 못했어요 (${sv}). 학교·회사 와이파이나 VPN에서 막혔을 수 있어요` : '친구 서버에 연결하는 중…';
+  $('fr-srv').textContent = !authUid() ? '친구 기능은 로그인한 회원만 쓸 수 있어요. 시작 화면에서 로그인해 주세요' : SOC.ok ? `친구 서버 연결됨 (${sv}) · ${SOC.data.reg ? '내 닉네임 등록됨' : '내 닉네임 등록 중…'}` : SOC.tried >= 4 ? `친구 서버에 연결하지 못했어요 (${sv}). 학교·회사 와이파이나 VPN에서 막혔을 수 있어요` : '친구 서버에 연결하는 중…';
   let h = '';
   if (SOC.reqIn.size) { h += '<h4>받은 친구 요청</h4>'; for (const [id, r] of SOC.reqIn) h += `<div class="fr"><span class="nm">${esc(r.nick)}</span><button class="btn" data-act="acc" data-n="${id}">받기</button><button class="btn sub" data-act="dec" data-n="${id}">거절</button></div>`; }
   $('fr-req').innerHTML = h;
@@ -9305,7 +9309,7 @@ const AUTH = { user: null, ready: false };
   md.innerHTML = `<div class="panel"><h2 id="au-title">로그인</h2><p class="hint">로그인하지 않아도 게임은 할 수 있어요.</p>
     <div id="au-nickbox" style="margin-top:12px"><label style="font-size:13px;color:#ffd24a;font-weight:700">닉네임</label>
       <input id="au-nick" maxlength="12" placeholder="2~12글자 (비우면 계정 이름)" autocomplete="off">
-      <div class="hint" style="margin-top:4px">친구가 이 닉네임으로 나를 찾아요. 다른 사람이 쓰는 닉네임은 못 써요.</div></div>
+      <div class="hint" style="margin-top:4px">로그인하면 닉네임이 내 계정에 등록돼서 친구가 찾을 수 있어요. 로그인 없이 시작하면 이 기기에만 저장돼요.</div></div>
     <div id="au-authbox">
     <button class="btn gbtn" id="au-google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>구글로 로그인</button>
     <div class="or">또는 이메일</div>
@@ -9336,7 +9340,7 @@ const AUTH = { user: null, ready: false };
   };
   // 로그인 전에 닉네임 글자 수부터 확인 (비워 두면 계정 이름을 써요)
   const nickOk = () => { const v = $('au-nick').value.trim(); if (needNick() && v && v.length < 2) { msg('닉네임은 두 글자 이상으로 정해 주세요'); $('au-nick').focus(); return false; } return true; };
-  const afterAuth = (cred) => { const u = (cred && cred.user) || AUTH.user; if (!needNick()) { close(); return; } AUTH.user = u; return claim(u && (u.displayName || (u.email || '').split('@')[0])); };
+  const afterAuth = (cred) => { const u = (cred && cred.user) || AUTH.user; if (u) window.__authUid = u.uid; if (!needNick()) { close(); return; } AUTH.user = u; return claim(u && (u.displayName || (u.email || '').split('@')[0])); };
   const ERR = {
     'auth/invalid-credential': '이메일 또는 비밀번호가 맞지 않아요', 'auth/wrong-password': '이메일 또는 비밀번호가 맞지 않아요',
     'auth/user-not-found': '가입된 이메일이 아니에요', 'auth/email-already-in-use': '이미 가입된 이메일이에요. 로그인을 눌러 주세요',
@@ -9363,7 +9367,11 @@ const AUTH = { user: null, ready: false };
   load('firebase-app-compat.js').then(() => load('firebase-auth-compat.js')).then(() => {
     firebase.initializeApp(FIREBASE_CONFIG);
     const auth = firebase.auth(); auth.languageCode = 'ko';
-    auth.onAuthStateChanged((u) => { AUTH.user = u; AUTH.ready = true; render(); if (md.style.display !== 'none') layout(); });
+    auth.onAuthStateChanged((u) => {
+      AUTH.user = u; AUTH.ready = true; window.__authUid = u ? u.uid : '';
+      if (!u && SOC.data.reg) { SOC.data.reg = false; socSave(); socReconnect(); } // 로그아웃하면 서버 등록 멈춤
+      render(); socUI(); if (md.style.display !== 'none') layout();
+    });
     $('au-google').onclick = () => { if (!nickOk()) return; msg('구글 창에서 로그인해 주세요…', true); auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).then(afterAuth, fail); };
     const creds = () => [$('au-email').value.trim(), $('au-pw').value];
     $('au-login').onclick = () => { if (!nickOk()) return; msg('로그인 중…', true); auth.signInWithEmailAndPassword(...creds()).then(afterAuth, fail); };
