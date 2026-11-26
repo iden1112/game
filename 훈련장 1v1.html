@@ -9263,7 +9263,7 @@ $('verlabel').textContent = 'v' + GAME_BUILD;
 // 새 버전 알림: 웹사이트에 더 새 게임이 있으면 시작 화면에 알려줘요
 const GAME_SITE = 'https://iden1112.github.io/game/';
 (function checkUpdate() {
-  if (location.hostname.endsWith('github.io')) return; // 웹사이트로 열었으면 늘 최신
+  if (location.protocol.startsWith('http')) return; // 웹사이트로 열었으면 늘 최신
   try {
     fetch(GAME_SITE + 'version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => {
       if (!j || !(j.build > GAME_BUILD)) return;
