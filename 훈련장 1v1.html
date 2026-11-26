@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 72; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 73; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -1613,7 +1613,12 @@ const AU = (() => {
       noise(out, ctx.currentTime, 0.09, 'lowpass', 520, 0.8, v);
       noise(out, ctx.currentTime + 0.01, 0.05, 'bandpass', 2200, 1.2, v * 0.35);
     },
-    land() { if (!ctx) return; const out = chain(spatial(null)); noise(out, ctx.currentTime, 0.14, 'lowpass', 300, 0.7, 0.35); },
+    land(pos, k = 0.4) { // 착지 소리: 높이 떨어질수록 크고 묵직하게 (쿵 + 신발 끌리는 소리)
+      if (!ctx) return; const s = spatial(pos || null), out = chain(s), v = (pos ? 0.6 * s.vol : 0.5) * (0.35 + 0.65 * k);
+      noise(out, ctx.currentTime, 0.12 + 0.1 * k, 'lowpass', 260 - 80 * k, 0.8, v);
+      noise(out, ctx.currentTime + 0.015, 0.08, 'bandpass', 1400, 1.1, v * 0.35);
+      if (k > 0.6) noise(out, ctx.currentTime + 0.06, 0.2, 'lowpass', 140, 0.6, v * 0.6);
+    },
     hit(head) {
       if (!ctx) return; const out = chain(spatial(null)), t = ctx.currentTime;
       if (head) { tone(out, t, 0.3, 2500, 2400, 0.28); tone(out, t, 0.35, 3800, 3700, 0.12); }
@@ -4317,6 +4322,10 @@ function buildSoldier(opt) {
       else if (st.stance === 'crouch') { bodyY = 0.62; thighBase = 1.15; kneeBase = -1.75; amp = moving ? 0.35 : 0; kamp = moving ? 0.25 : 0; spineX = -0.12; }
       else { bodyY = 0.95; amp = moving ? clamp(sp / 6.3, 0.2, 1) * 0.75 : 0; kamp = amp * 1.1; spineX = st.sprint ? -0.22 : -0.04; }
       if (st.air) { thighBase += 0.5; kneeBase -= 0.8; amp *= 0.2; }
+      if (st.landK > 0 && st.stance !== 'prone') { // 착지: 무릎을 굽혀 쪼그렸다가 천천히 일어나요
+        const q = Math.pow(st.landK, 0.6);
+        bodyY = lerp(bodyY, 0.5, q); thighBase = lerp(thighBase, 1.5, q); kneeBase = lerp(kneeBase, -2.3, q); spineX = lerp(spineX, -0.45, q); amp *= 1 - q;
+      }
       // 엎드리기/일어나기 모션: 무릎 꿇기 → 손 짚고 앞으로 눕기 (일어날 땐 반대로)
       let instant = false;
       if (st.proneTr) {
@@ -4996,6 +5005,7 @@ class Actor {
     else if (this.shoulderT > 0.5) sp *= 0.8;
     if (this.proneLock > 0) sp *= 0.12;
     if (this.healT > 0) sp *= 0.42; // 치료하는 동안 천천히 걸어요
+    if (this.landT > 0) { this.landT -= dt; sp *= 0.3; } // 높은 데서 떨어진 직후: 쪼그렸다 일어나는 동안 느리게
     if (this.reloadT > 0 && this.stance === 'prone') sp *= 0.0;
     const wl = Math.hypot(this.wish.x, this.wish.z);
     let tx = 0, tz = 0;
@@ -5037,7 +5047,12 @@ class Actor {
     const gnd = groundAt(this.pos.x, this.pos.z, RADIUS * 0.75, Math.max(this.pos.y, ny), this.onGround ? STEP : 0.12);
     const wasGround = this.onGround;
     if (ny <= gnd) {
-      if (!wasGround && this.vel.y < -6) { this.onLand && this.onLand(-this.vel.y); }
+      if (!wasGround && this.vel.y < -3.2) { // 떨어져서 땅에 닿았어요: 소리 + 높은 데서 떨어지면 쪼그렸다 일어나기 (배그처럼)
+        const v = -this.vel.y;
+        AU.land(this.isPlayer ? null : this.pos, Math.min(1, (v - 2.5) / 9));
+        if (v > 9) { this.landT = this.landDur = clamp(0.35 + (v - 9) * 0.06, 0.4, 0.75); this.sprint = false; } // 약 2.7m 넘게 떨어지면
+        this.onLand && this.onLand(v);
+      }
       this.pos.y = gnd; this.vel.y = 0; this.onGround = true;
     } else if (wasGround && this.pos.y - gnd < STEP + 0.05 && this.vel.y <= 0) {
       this.pos.y = gnd; this.vel.y = 0; this.onGround = true; // 계단 내려가기
@@ -5080,12 +5095,13 @@ class Actor {
       const r = reach ? raycastWorld(c, f, reach) : null;
       this.wallK = damp(this.wallK || 0, r ? clamp(1 - (r.t - 0.3) / (reach - 0.3), 0, 1) : 0, 12, dt);
     }
-    s.animate({ wallK: this.wallK, speed: hsp, stance: this.stance, sprint: this.sprint && hsp > 3, air: !this.onGround && !this.vault, lean: this.lean, pitch: this.pitch, dead: this.dead, stanceH: s.body.position.y, reloadT: this.reloadT > 0 ? 1 - this.reloadT / (this.reloadDur || 1) : 0, vault: this.vault ? Math.min(1, this.vault.t) : (this.netVault >= 0 ? this.netVault : -1), vaultOver: this.vault ? this.vault.over : !!this.netVaultOver, vaultEdge: this.vault ? this.vault.edge : this.netEdge || null, yaw: this.yaw, proneTr: this.proneLock > 0 ? { p: 1 - this.proneLock / this.proneDur, down: this.stance === 'prone' } : null, thr: this.throwAnimT > 0 ? 1 - this.throwAnimT / 0.5 : 0, thrUnder: this.throwUnder, heal: this.healT > 0 || !!this.netHeal, pinUp: this.mode === 'throw' && this.pin }, dt);
+    s.animate({ wallK: this.wallK, speed: hsp, stance: this.stance, sprint: this.sprint && hsp > 3, air: !this.onGround && !this.vault, lean: this.lean, pitch: this.pitch, dead: this.dead, stanceH: s.body.position.y, reloadT: this.reloadT > 0 ? 1 - this.reloadT / (this.reloadDur || 1) : 0, vault: this.vault ? Math.min(1, this.vault.t) : (this.netVault >= 0 ? this.netVault : -1), vaultOver: this.vault ? this.vault.over : !!this.netVaultOver, vaultEdge: this.vault ? this.vault.edge : this.netEdge || null, yaw: this.yaw, proneTr: this.proneLock > 0 ? { p: 1 - this.proneLock / this.proneDur, down: this.stance === 'prone' } : null, thr: this.throwAnimT > 0 ? 1 - this.throwAnimT / 0.5 : 0, thrUnder: this.throwUnder, heal: this.healT > 0 || !!this.netHeal, landK: this.landT > 0 ? this.landT / (this.landDur || 0.5) : (this.netLand || 0), pinUp: this.mode === 'throw' && this.pin }, dt);
     soldierHitboxes(s, this.hitbox);
     // 눈 위치 (기울이기 포함)
     const right = _v1.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     this.eyePos.set(this.pos.x, this.pos.y + this.stanceH, this.pos.z).addScaledVector(right, this.lean * (this.stance === 'prone' ? 0.25 : 0.42));
     this.eyePos.y -= Math.abs(this.lean) * 0.06;
+    if (this.landT > 0) this.eyePos.y -= 0.5 * Math.pow(this.landT / (this.landDur || 0.5), 0.6); // 착지할 때 시점이 푹 내려갔다가 올라와요
     if (this.stance === 'prone') { const f = _v2.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); this.eyePos.addScaledVector(f, 0.55); }
     { // 눈(카메라·총알 나가는 곳)이 벽 안이나 너머로 가지 않게 몸 가운데서 확인
       const c = _pv1.set(this.pos.x, this.pos.y + Math.min(this.stanceH, 1.0), this.pos.z), d = _pv2.copy(this.eyePos).sub(c), L = d.length();
@@ -5457,7 +5473,7 @@ function createPlayer() {
     }
   };
   p.onDamage = (dmg, from, info) => { HUD.damaged(dmg, from, info); AU.hurt(); G.shake = Math.max(G.shake, 0.25); };
-  p.onLand = (v) => { AU.land(); VM.bob += 0.05; };
+  p.onLand = (v) => { VM.bob += 0.05 + Math.min(0.1, v * 0.006); };
   p.onVault = () => AU.land();
   p.hearShot = () => {};
   ACTORS.push(p);
@@ -7877,7 +7893,7 @@ function netRecv(m) {
       else if (m.m === 't') { if (r.mode !== 'throw' || r.throwType !== m.tt) { r.mode = 'throw'; r.throwType = m.tt; r.soldier.setGun(buildGrenadeModel(m.tt)); r.soldier.setArms('HG'); } }
       else if (r.weapons.length && (r.mode !== 'gun' || r.cur !== m.w)) { r.cur = clamp(m.w, 0, r.weapons.length - 1); r.mode = 'gun'; r.soldier.setGun(r.w.model); r.soldier.setArms(r.w.stats.cat); }
       r.reloadT = m.rl ? 1 - m.rl : 0; r.reloadDur = 1; // 장전 진행도 (상대 장전 동작도 맞게)
-      r.netVault = m.vt === undefined ? -1 : m.vt; r.netVaultOver = !!m.vo; r.netEdge = m.ve ? (r.netEdge || new V3()).fromArray(m.ve) : null; r.netHeal = !!m.he;
+      r.netVault = m.vt === undefined ? -1 : m.vt; r.netVaultOver = !!m.vo; r.netEdge = m.ve ? (r.netEdge || new V3()).fromArray(m.ve) : null; r.netHeal = !!m.he; r.netLand = m.lk || 0;
       break;
     }
     case 'chat': { const r = REMOTES[from] || actorById(from); if (m.s === 'team' && (!r || r.team !== G.myTeam)) break; chatShow(m.s, m.n || (r && r.name) || '?', m.x, r && r.team !== G.myTeam ? 'en' : 'tm'); break; }
@@ -7963,7 +7979,7 @@ function netUpdate(dt) {
     netSend({
       t: 'st', ts: Math.round(performance.now()), p: [+p.pos.x.toFixed(3), +p.pos.y.toFixed(3), +p.pos.z.toFixed(3)], v: [+p.vel.x.toFixed(2), +p.vel.z.toFixed(2)], y: +p.yaw.toFixed(4), pi: +p.pitch.toFixed(4),
       s: STANCE_CODE[p.stance], l: +p.lean.toFixed(2), a: +p.adsT.toFixed(2), sp: p.sprint ? 1 : 0, h: Math.round(p.health * 10) / 10, d: p.dead ? 1 : 0,
-      hl: p.helmet.lv, hd: Math.round(p.helmet.dur), vl: p.vest.lv, vd: Math.round(p.vest.dur), w: p.cur, m: p.mode === 'throw' ? 't' : p.mode === 'fist' ? 'f' : 'g', tt: p.throwType, rl: p.reloadT > 0 ? Math.max(0.01, +(1 - p.reloadT / (p.reloadDur || 1)).toFixed(2)) : 0, vt: p.vault ? +Math.min(1, p.vault.t).toFixed(2) : -1, vo: p.vault && p.vault.over ? 1 : 0, ve: p.vault ? p.vault.edge.toArray().map(v => +v.toFixed(2)) : undefined, he: p.healT > 0 ? 1 : 0,
+      hl: p.helmet.lv, hd: Math.round(p.helmet.dur), vl: p.vest.lv, vd: Math.round(p.vest.dur), w: p.cur, m: p.mode === 'throw' ? 't' : p.mode === 'fist' ? 'f' : 'g', tt: p.throwType, rl: p.reloadT > 0 ? Math.max(0.01, +(1 - p.reloadT / (p.reloadDur || 1)).toFixed(2)) : 0, vt: p.vault ? +Math.min(1, p.vault.t).toFixed(2) : -1, vo: p.vault && p.vault.over ? 1 : 0, ve: p.vault ? p.vault.edge.toArray().map(v => +v.toFixed(2)) : undefined, he: p.healT > 0 ? 1 : 0, lk: p.landT > 0 ? +(p.landT / (p.landDur || 0.5)).toFixed(2) : undefined,
     }, '*', sid, batch);
     const lo = { t: 'lo', list: p.weapons.map(w => ({ id: w.id, att: w.att })) };
     const key = JSON.stringify(lo.list);
@@ -8185,6 +8201,36 @@ function house(F, w, d, h, mat, o = {}) {
   if (o.ruin) ruinWalls(F, w, d, h, mat);
 }
 NOPOS.add(house);
+// 2층 건물: 1층 문·창문, 안쪽 왼벽을 따라 계단, 2층 바닥(계단 자리는 뚫림) + 난간, 2층 창문(사방), 평평한 지붕
+// o.door / o.win = 1층 (['f','b','l','r']), o.win2 = 2층 창문 (기본 사방)
+function building2(F, w, d, mat, o = {}) {
+  const T = 0.3, h1 = 3.2, slab = 0.25, base2 = h1 + slab, h2 = 2.9;
+  const door = { w: 1.4, y0: 0, y1: 2.3 }, win = { w: 1.5, y0: 1.05, y1: 2.05 };
+  const holes = (side, len, doors, wins) => { const r = []; if (doors.includes(side)) r.push({ c: 0, ...door }); if (wins.includes(side)) { if (doors.includes(side)) { const c = len / 2 - 1.5; if (c > 1.7) r.push({ c, ...win }, { c: -c, ...win }); } else r.push({ c: -len / 4, ...win }, { c: len / 4, ...win }); } return r; };
+  const walls = (FF, h, doors, wins) => {
+    lwall(FF, 'x', d / 2 - T / 2, -w / 2, w / 2, h, T, mat, holes('f', w, doors, wins));
+    lwall(FF, 'x', -d / 2 + T / 2, -w / 2, w / 2, h, T, mat, holes('b', w, doors, wins));
+    lwall(FF, 'z', -w / 2 + T / 2, -d / 2 + T, d / 2 - T, h, T, mat, holes('l', d, doors, wins));
+    lwall(FF, 'z', w / 2 - T / 2, -d / 2 + T, d / 2 - T, h, T, mat, holes('r', d, doors, wins));
+  };
+  walls(F, h1, o.door || ['f'], o.win || ['l', 'r']);
+  const F2 = Object.assign({}, F, { box: (lx, y, lz, a, b, c, m, op) => F.box(lx, y + base2, lz, a, b, c, m, op) });
+  walls(F2, h2, [], o.win2 || ['f', 'b', 'l', 'r']);
+  // 계단 (왼쪽 벽 따라 앞 → 뒤로 올라가요. 문으로 들어와서 왼쪽으로 돌면 바로 계단)
+  const steps = Math.ceil(base2 / 0.33), rise = base2 / steps, run = 0.42, Ls = steps * run;
+  const hx0 = -w / 2 + T, hx1 = hx0 + 1.3, zs = d / 2 - T - 1.0, z0 = zs - Ls, z1 = zs; // 계단 앞에 1m 들어설 자리. z0: 맨 위 칸 끝, z1: 맨 아래 칸 시작
+  F.stairs(hx0 + 0.65, zs, 1.2, steps, rise, run, 'z-', o.stairMat || MAT.concrete);
+  // 2층 바닥: 계단 위만 뚫어 둬요
+  const ix1 = w / 2 - T, iz0 = -d / 2 + T, iz1 = d / 2 - T, sm = o.floorMat || MAT.concreteDark;
+  F.box((hx1 + ix1) / 2, h1, 0, ix1 - hx1, slab, iz1 - iz0, sm, { texScale: 2 });
+  if (z0 - iz0 > 0.05) F.box((hx0 + hx1) / 2, h1, (iz0 + z0) / 2, hx1 - hx0, slab, z0 - iz0, sm);
+  if (iz1 - z1 > 0.05) F.box((hx0 + hx1) / 2, h1, (z1 + iz1) / 2, hx1 - hx0, slab, iz1 - z1, sm);
+  // 난간 (뚫린 곳에 안 떨어지게, 계단 끝 쪽은 열어 둬요)
+  F.box(hx1 + 0.05, base2, (z0 + 0.9 + z1) / 2, 0.1, 1.0, z1 - z0 - 0.9, MAT.metal); // 맨 위(뒤쪽) 0.9m 는 열어 둬요
+  // 지붕
+  F.box(0, base2 + h2, 0, w, 0.25, d, o.roofMat || MAT.concreteDark, { texScale: 3 });
+}
+NOPOS.add(building2);
 function ruinWalls(F, w, d, h, mat) { // 무너진 집: 벽이 군데군데 남아 있음
   const T = 0.35, seg = 1.5;
   const side = (along, fixed, len) => { for (let a = -len / 2; a < len / 2 - 0.1; a += seg) { const hh = MR() < 0.25 ? 0 : mr(0.8, h); const l = Math.min(seg, len / 2 - a); if (hh > 0.3) (along === 'x' ? F.box(a + l / 2, 0, fixed, l, hh, T, mat) : F.box(fixed, 0, a + l / 2, T, hh, l, mat)); } };
@@ -8558,6 +8604,19 @@ defMap('t4_fort', '숲 속 요새', 4, 80, 110, 'forest', mapBuilder(403, 80, 11
 }));
 
 // ===== 개인전 (1v1v1v1) 전용: 네모난 맵, 네 모서리에서 시작, 90도씩 똑같은 모양 =====
+// ---- 2층 건물이 있는 맵 ----
+defMap('d_shops', '2층 상가 거리', 1, 32, 74, 'base', mapBuilder(104, 32, 74, MAT.asphalt, 'brick', 'city', (hw, hl) => {
+  S(building2, -7, -14, 0, 9, 8, MAT.brick, { door: ['f', 'r'], win: ['l'] });
+  S(building2, 8.5, -26, 0, 8, 8, M2.plaster, { door: ['f', 'l'], win: ['r', 'b'] });
+  S(jersey, 0, -3, 0, 4, true); S(carF, 8, -9, 0, true, 2); S(crates, -12, -25, 0); S(sandbag, -3, -24, 0, 3, true);
+  S(barrels, 12, -16, 0); S(wallL, -1, -31, 0, 4, 1.6, true, MAT.concrete);
+}));
+defMap('t2_houses', '2층 주택가', 2, 44, 84, 'base', mapBuilder(205, 44, 84, M2.grass, 'brick', 'trees', (hw, hl) => {
+  S(building2, -10, -14, 0, 10, 8, M2.plaster, { door: ['f', 'b'], win: ['l', 'r'], roofMat: M2.roofTile });
+  S(building2, 12, -27, 0, 9, 8, M2.redwood, { door: ['f', 'l'], win: ['r'] });
+  C(well, 0, 0, 0); S(carF, 6, -7, 0, true, 1); S(fence, 15, -12, 0, 8, true); S(tree, -18, -26, 0, 1.3); S(tree, 1, -22, 0, 1.2);
+  S(crates, -4, -31, 0); S(hay, 17, -36, 0, 2); S(sandbag, -16, -4, 0, 3, false);
+}));
 function defFFA(id, name, W, theme, build) {
   defMap(id, name, 'ffa', W, W, theme, build);
   const X = W / 2 - 4.5;
@@ -8598,6 +8657,12 @@ defFFA('f_yard', '컨테이너 야적장', 66, 'gray', mapBuilder(504, 66, 66, M
   Q(cont, 0, -15, 0, true, true, 2); Q(cont, -13, -12, 0, false, false, 3); Q(crates, 10, -9, 0);
   Q(scaf, 19, -16, 0, 3, 3, 4, 'z-'); Q(barrels, -6, -24, 0); Q(cont, 22, -3, 0, false, true, 4); Q(jersey, -19, -3, 0, 4, false);
   ffaCover(66, MAT.concrete, 1.9, (x, z) => Q(crates, x, z, 0));
+}));
+defFFA('f_shops', '2층 건물 사거리', 64, 'base', mapBuilder(508, 64, 64, MAT.asphalt, 'brick', 'city', (hw) => {
+  C(jersey, 0, 0, 0, 6, true); C(jersey, 0, 0, 0, 6, false);
+  Q(building2, -6, -16, 0, 9, 8, MAT.brick, { door: ['f', 'l'], win: ['r'] });
+  Q(carF, 9, -9, 0, true, 2); Q(barrels, -16, -6, 0);
+  ffaCover(64, MAT.concrete, 1.9, (x, z) => Q(crates, x, z, 0));
 }));
 defFFA('f_market', '사막 시장', 64, 'desert', mapBuilder(505, 64, 64, M2.sand, 'plaster', 'palms', (hw) => {
   C(well, 0, 0, 0);
