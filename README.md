@@ -18,20 +18,6 @@ npm start
 
 `훈련장 1v1.html` 파일을 크롬에서 열어도 됩니다. (three.js r128, PeerJS 내장)
 
-## Godot 버전 (`godot/` 폴더)
-
-같은 게임을 Godot 4.7로 옮긴 버전입니다. 웹에서 바로 하기: **https://training-1v1.onrender.com/godot/**
-
-- `godot/` — Godot 프로젝트 (Godot 4.7에서 `godot/project.godot` 열기 → F5). 자세한 내용은 `godot/README.md`
-- `web/godot/` — 웹으로 내보낸 결과 (사이트의 `/godot/` 에서 보여줌)
-- 온라인 대전은 웹 게임의 「학교 와이파이용 방」(코드 R…)과 같은 방식이라 웹·Godot 이 같은 방에서 만날 수 있어요
-
-다시 내보내기: Godot 에서 프로젝트 → 내보내기 → Web → 「프로젝트 내보내기」(경로 `../web/godot/index.html`), 또는
-
-```
-Godot_v4.7.2-stable_win64_console.exe --headless --path godot --export-release Web ../web/godot/index.html
-```
-
 ## 새 버전 올리기
 
 웹사이트: **https://training-1v1.onrender.com** (Render에서 `server.js` 실행)

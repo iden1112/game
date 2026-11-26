@@ -18,24 +18,7 @@ const ROUTES = {
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.wasm': 'application/wasm',
-  '.pck': 'application/octet-stream',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
 };
-
-// Godot 버전 (웹으로 내보낸 것): /godot/ 아래 web/godot 폴더의 파일만 보여줘요
-const GODOT_DIR = path.join(ROOT, 'web', 'godot');
-function godotFile(pathname) {
-  if (pathname === '/godot') return null;
-  if (!pathname.startsWith('/godot/')) return null;
-  const rel = pathname.slice('/godot/'.length) || 'index.html';
-  const full = path.normalize(path.join(GODOT_DIR, rel));
-  if (!full.startsWith(GODOT_DIR + path.sep)) return null; // 폴더 밖으로 못 나가게
-  return path.relative(ROOT, full);
-}
 
 const server = http.createServer((req, res) => {
   let pathname;
@@ -46,11 +29,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === '/godot') {
-    res.writeHead(301, { Location: '/godot/' }).end();
-    return;
-  }
-  const file = ROUTES[pathname] || godotFile(pathname);
+  const file = ROUTES[pathname];
   if (!file || (req.method !== 'GET' && req.method !== 'HEAD')) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('페이지를 찾을 수 없어요');
     return;
@@ -58,8 +37,7 @@ const server = http.createServer((req, res) => {
 
   fs.readFile(path.join(ROOT, file), (err, data) => {
     if (err) {
-      const nf = err.code === 'ENOENT' || err.code === 'EISDIR';
-      res.writeHead(nf ? 404 : 500, { 'Content-Type': 'text/plain; charset=utf-8' }).end(nf ? '페이지를 찾을 수 없어요' : '파일을 읽지 못했어요');
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }).end('파일을 읽지 못했어요');
       return;
     }
     res.writeHead(200, {
