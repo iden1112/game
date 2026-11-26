@@ -4,7 +4,19 @@
 
 ## 실행
 
-`훈련장 1v1.html` 파일을 크롬에서 열면 됩니다. (three.js r128 내장, 설치 불필요)
+### 웹사이트로 실행 (Node.js)
+
+Node.js 18 이상이 필요합니다. 추가 패키지 설치는 필요 없습니다.
+
+```
+npm start
+```
+
+크롬에서 http://localhost:3000 을 엽니다. 포트를 바꾸려면 `PORT` 환경변수를 지정합니다. (PowerShell: `$env:PORT=8080; npm start`)
+
+### 파일로 바로 실행
+
+`훈련장 1v1.html` 파일을 크롬에서 열어도 됩니다. (three.js r128, PeerJS 내장)
 
 ## 새 버전 올리기
 

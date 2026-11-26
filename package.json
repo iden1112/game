@@ -1,0 +1,13 @@
+{
+  "name": "training-1v1",
+  "version": "1.0.0",
+  "description": "훈련장 1v1 — 배틀그라운드 훈련장 스타일 1대1 FPS 웹게임",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
