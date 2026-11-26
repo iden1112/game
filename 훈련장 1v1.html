@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 73; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 74; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -8939,7 +8939,7 @@ function socAcctPush(now) {
   const send = () => {
     if (!SOC.acctReady || !SOC.ok || !socLive().length) { SOC.acctDirty = true; return; } // 서버의 계정 정보를 다 불러오기 전엔 덮어쓰지 않아요
     SOC.acctDirty = false;
-    socPub('acct/' + uid, { nick: SOC.data.nick, nickTs: SOC.data.nickTs || 0, friends: SOC.data.friends.filter(f => f.id).map(f => ({ id: f.id, nick: f.nick })), ts: Date.now() }, true);
+    socPub('acct/' + uid, Object.assign({ nick: SOC.data.nick, nickTs: SOC.data.nickTs || 0, friends: SOC.data.friends.filter(f => f.id).map(f => ({ id: f.id, nick: f.nick })), ts: Date.now() }, typeof cloudSettings === 'function' ? cloudSettings() : {}), true);
   };
   if (now) send(); else { SOC.acctDirty = true; acctT = setTimeout(send, 800); }
 }
@@ -8959,6 +8959,7 @@ function socAccount(uid) {
     if (a) {
       if (a.nick && (!SOC.data.nick || (a.nickTs || 0) > (SOC.data.nickTs || 0))) { SOC.data.nick = a.nick; SOC.data.nickTs = a.nickTs || 0; applyNick(a.nick); } // 다른 컴퓨터에서 바꾼 닉네임
       for (const f of a.friends || []) { const o = friendById(f.id); if (!o) SOC.data.friends.push({ id: f.id, nick: f.nick }); }
+      if (typeof cloudApply === 'function') cloudApply(a); // 다른 컴퓨터에서 바꾼 설정·총 구성
     }
     SOC.acctReady = true; socSave(); socAcctPush(true); socReconnect(); socUI();
   })();
@@ -9665,6 +9666,95 @@ function updateClimbVM(p) {
       if (p.vault && VM.gun) VM.gun.position.y -= 0.35 * (CAM.vaultK || 0); // 손으로 짚는 동안 총은 화면 아래로
     }
   };
+}
+
+// ================= 로그인하면 설정(감도·조준선·키·화면·소리)과 총 구성을 계정에 저장 =================
+// 어느 컴퓨터에서 로그인해도 마지막에 바꾼 설정으로 맞춰져요
+const CLOUD_SKIP = new Set(['nick']); // 닉네임은 따로 (계정 닉네임)
+function localSetTs() { try { return +localStorage.getItem('tg1v1_set_ts') || 0; } catch (e) { return 0; } }
+function cloudSettings() {
+  const s = {}; for (const k in SETTINGS) if (!CLOUD_SKIP.has(k)) s[k] = SETTINGS[k];
+  return { settings: s, loadout: LOADOUT, setTs: localSetTs() };
+}
+// 설정이나 총 구성을 바꾸면 시각을 적고 계정에도 보내요
+{
+  const _ss = saveSettings, _sl = saveLoadout;
+  let quiet = true; setTimeout(() => { quiet = false; }, 1500); // 게임을 켤 때 처음 저장하는 건 '바꾼 것'으로 안 쳐요
+  // 실제로 값이 바뀌었을 때만 '바꾼 시각'을 적어요 (게임을 켤 때 저장되는 건 빼고)
+  // 비교할 때 닉네임은 빼요 (닉네임은 계정 닉네임으로 따로 맞춰요)
+  const snap = () => JSON.stringify(cloudSettings().settings) + JSON.stringify(LOADOUT);
+  let last = null;
+  const wrap = (orig) => function () {
+    orig();
+    const now = snap();
+    if (quiet || last === null) { last = now; return; }
+    if (now === last) return;
+    last = now;
+    try { localStorage.setItem('tg1v1_set_ts', String(Date.now())); } catch (e) {}
+    if (typeof socAcctPush === 'function' && authUid()) socAcctPush();
+  };
+  saveSettings = wrap(_ss);
+  saveLoadout = wrap(_sl);
+  setTimeout(() => { if (last === null) last = snap(); }, 1500);
+  // 계정의 설정이 더 최근이면 이 컴퓨터에 적용해요
+  window.cloudApply = function (a) {
+    if (!a || !a.settings || !((a.setTs || 0) > localSetTs())) return;
+    quiet = true;
+    try {
+      const nick = SETTINGS.nick;
+      for (const k in a.settings) if (!CLOUD_SKIP.has(k)) SETTINGS[k] = a.settings[k];
+      SETTINGS.nick = nick;
+      if (a.loadout && a.loadout.slots && a.loadout.slots.every(x => WEAPONS[x.id])) { LOADOUT = a.loadout; _sl(); if (typeof playerLoadoutList === 'function' && PLAYER) PLAYER.setLoadout(playerLoadoutList()); try { renderLoadout(); } catch (e) {} }
+      _ss(); last = snap(); try { localStorage.setItem('tg1v1_set_ts', String(a.setTs)); } catch (e) {}
+      refreshSettingsUI();
+      try { HUD.toast('계정에 저장된 설정을 불러왔어요'); } catch (e) {}
+    } finally { quiet = false; }
+  };
+}
+// 설정 화면 값들을 SETTINGS 에 맞게 다시 채우고 바로 적용
+function refreshSettingsUI() {
+  const set = (id, v) => { const el = $(id); if (el && v !== undefined) el.value = v; };
+  set('set-diff', SETTINGS.difficulty); set('set-armor', SETTINGS.armor); set('set-sens', SETTINGS.sens); set('set-ads', SETTINGS.adsSens);
+  set('set-fov', SETTINGS.fov); set('set-vol', SETTINGS.volume); set('set-aim', SETTINGS.aimMode); set('set-crouch', SETTINGS.crouchMode);
+  set('set-lean', SETTINGS.leanMode); set('set-sprint', SETTINGS.sprintMode); set('set-quality', SETTINGS.quality || 'mid');
+  try { applyQuality(); } catch (e) {}
+  try { AU.setVol(SETTINGS.volume); } catch (e) {}
+  const v = (id, t) => { const el = $(id); if (el) el.textContent = t; };
+  v('v-sens', (+SETTINGS.sens).toFixed(2)); v('v-ads', (+SETTINGS.adsSens).toFixed(2)); v('v-fov', SETTINGS.fov);
+  const x = SETTINGS.xh || {};
+  for (const k of ['len', 'th', 'gap', 'dot', 'out', 'dyn']) set('xh-' + k, x[k]);
+  set('xh-preset', x.preset || 'custom'); v('v-xh-len', x.len); v('v-xh-th', x.th); v('v-xh-gap', x.gap);
+  document.querySelectorAll('#xh-colors b').forEach(b => b.classList.toggle('on', b.dataset.c === x.color));
+  try { applyCrosshair(); } catch (e) {}
+  try { rebuildKeys(); if (typeof drawKeybinds === 'function') drawKeybinds(); } catch (e) {}
+}
+// ---- 설정 창 '게임' 탭과 일시정지 화면에 계정 줄 (로그인 상태 · 로그아웃) ----
+const authUser = () => { try { return AUTH.user; } catch (e) { return null; } }; // AUTH 는 맨 마지막 파일에서 만들어져요
+function accountRowHTML() {
+  const u = authUser();
+  if (!u) return `<span>로그인 안 됨 · 로그인하면 설정이 계정에 저장돼요</span><button class="btn sub" data-acct="in">로그인</button>`;
+  return `<span>로그인됨: <b>${esc(SOC.data.nick || u.displayName || u.email || '사용자')}</b> · 설정이 계정에 저장돼요</span><button class="btn sub" data-acct="out">로그아웃</button>`;
+}
+let acctKey = '';
+function drawAccountRows() {
+  const u = authUser(), k = (u ? u.uid : '-') + '|' + (SOC.data.nick || '');
+  if (k === acctKey) return; acctKey = k; // 로그인 상태가 바뀔 때만 다시 그려요
+  for (const el of document.querySelectorAll('.acctrow')) el.innerHTML = accountRowHTML();
+}
+{
+  const st = document.createElement('style');
+  st.textContent = '.acctrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 10px;background:#1d2126;border-radius:6px;font-size:13px;color:#9aa4ad}.acctrow b{color:#fff}.acctrow .btn{padding:5px 12px;font-size:13px;margin-left:auto}';
+  document.head.appendChild(st);
+  const add = (parent, before) => { if (!parent) return; const d = document.createElement('div'); d.className = 'acctrow'; before ? parent.insertBefore(d, before) : parent.prepend(d); };
+  add(document.querySelector('#settings .spane[data-pane="game"]'));
+  const pp = document.querySelector('#pause .panel'); if (pp) add(pp, $('pause-settings'));
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-acct]'); if (!b) return;
+    if (b.dataset.acct === 'in') { if (window.AUTH_OPEN) AUTH_OPEN(); }
+    else if (confirm('로그아웃할까요? (설정은 이 컴퓨터에도 남아 있어요)')) { try { firebase.auth().signOut(); } catch (er) {} }
+  });
+  drawAccountRows();
+  setInterval(drawAccountRows, 1000); // 로그인 상태가 바뀌면 다시 그려요
 }
 
 // ================= 시작 =================
