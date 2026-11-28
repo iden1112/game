@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 85; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 86; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -5487,7 +5487,7 @@ function camDir(out) {
 
 function playerInput(dt) {
   const p = PLAYER, K = INPUT.keys, P = INPUT.pressed;
-  const live = G.state === 'live' || G.state === 'pre' || G.state === 'range';
+  const live = G.state === 'live' || G.state === 'pre' || G.state === 'range' || G.state === 'post'; // 라운드 사이에도 자유롭게 걸어 다녀요 (총은 못 쏴요)
   const frozen = G.state === 'pre' || G.menuOpen;
   // 마우스
   const zoom = CAM.zoom;
@@ -5547,7 +5547,7 @@ function playerInput(dt) {
   } else if (INPUT.wheel && !p.pin && p.adsT < 0.1) { if (p.mode === 'throw' || p.mode === 'fist') p.equip(p.cur); else p.equip((p.cur + 1) % p.weapons.length); }
   if (P.KeyB) p.cycleFireMode();
   if (P.KeyR) { if (p.mode === 'throw') p.cook(); else p.startReload(); }
-  if (frozen) { p.trigger = false; return; }
+  if (frozen || G.state === 'post') { p.trigger = false; p.triggerEdge = false; return; }
   // 사격 / 던지기
   if (p.mode === 'gun') {
     if (INPUT.lmbPressed) { p.triggerEdge = true; if (p.sprint) { p.sprint = false; } }
