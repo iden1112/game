@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 76; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 77; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -9791,7 +9791,8 @@ const FIREBASE_CONFIG = {
   messagingSenderId: '1063877479749',
   appId: '1:1063877479749:web:de2b9a870a7b913926c22c',
 };
-const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.12.2/';
+// 로그인 도구: 먼저 우리 사이트(같은 주소의 firebase/ 폴더)에서, 안 되면 구글 서버에서 받아요 (학교에서 구글 서버가 막혀도 되게)
+const FIREBASE_SDKS = ['firebase/', 'https://www.gstatic.com/firebasejs/10.12.2/'];
 const AUTH = { user: null, ready: false };
 (function setupAuth() {
   if (!FIREBASE_CONFIG || !location.protocol.startsWith('http')) return; // 설정 전이거나 파일로 열면 로그인 숨김
@@ -9867,12 +9868,17 @@ const AUTH = { user: null, ready: false };
     $('au-out').onclick = () => firebase.auth().signOut();
   };
   render();
-  const load = (f) => new Promise((ok, no) => { const s = document.createElement('script'); s.src = FIREBASE_SDK + f; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  const load1 = (src) => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => { s.remove(); no(new Error('load ' + src)); }; document.head.appendChild(s); });
+  let sdkBase = null;
+  const load = async (f) => {
+    for (const b of sdkBase ? [sdkBase] : FIREBASE_SDKS) { try { await load1(b + f); sdkBase = b; return; } catch (e) {} }
+    throw new Error('sdk');
+  };
   load('firebase-app-compat.js').then(() => load('firebase-auth-compat.js')).then(() => {
     firebase.initializeApp(FIREBASE_CONFIG);
     const auth = firebase.auth(); auth.languageCode = 'ko';
     // 브라우저(탭)를 닫으면 자동으로 로그아웃돼요 (학교처럼 같이 쓰는 컴퓨터용)
-    auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {});
+    try { auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {}); } catch (e) {}
     auth.onAuthStateChanged((u) => {
       AUTH.user = u; AUTH.ready = true; window.__authUid = u ? u.uid : '';
       socAccount(u ? u.uid : ''); // 로그인하면 계정 번호·친구 목록으로
@@ -9885,7 +9891,14 @@ const AUTH = { user: null, ready: false };
     $('au-signup').onclick = () => { if (!nickOk()) return; msg('가입하는 중…', true); auth.createUserWithEmailAndPassword(...creds()).then(afterAuth, fail); };
     $('au-reset').onclick = () => { const em = $('au-email').value.trim(); if (!em) { msg('위에 이메일을 먼저 입력하세요'); return; } auth.sendPasswordResetEmail(em).then(() => msg('비밀번호 재설정 메일을 보냈어요', true), fail); };
     $('au-close').onclick = close;
-  }).catch(() => { AUTH.ready = true; row.innerHTML = '<span>로그인 서버에 연결하지 못했어요</span>'; });
+  }).catch((e) => {
+    AUTH.ready = true;
+    const inClaude = /claude\.ai|claudeusercontent/.test(location.hostname);
+    row.innerHTML = inClaude ? '<span>여기(claude.ai 안)에서는 로그인이 안 돼요. 게임 사이트 주소로 열어 주세요</span>'
+      : '<span>로그인 서버에 연결하지 못했어요 (인터넷이나 와이파이에서 막혔을 수 있어요)</span><button class="btn sub" id="au-retry">다시 시도</button>';
+    const rb = $('au-retry'); if (rb) rb.onclick = () => location.reload();
+    console.warn('firebase', e && e.message);
+  });
 })();
 window.__game = { step(n, dt = 1 / 60) { for (let i = 0; i < n; i++) { simStep(dt); updateFX(dt); fx.update(dt, camera); updatePlayerCamera(dt); INPUT.consume(); } }, G, PLAYER: () => PLAYER, BOT: () => BOT, REMOTES: () => REMOTES, netStartGame, GAME, CAM, INPUT, NET, RANGE, openLoadout, closeLoadout, camera, enterRange, netHost, netJoin };
 </script>

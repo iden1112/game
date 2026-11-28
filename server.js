@@ -13,11 +13,15 @@ const ROUTES = {
   '/index.html': GAME_FILE,
   ['/' + GAME_FILE]: GAME_FILE,
   '/version.json': 'version.json',
+  // 로그인 도구 (학교 등에서 구글 서버가 막혀도 로그인되게 우리 서버에서 줘요)
+  '/firebase/firebase-app-compat.js': 'firebase/firebase-app-compat.js',
+  '/firebase/firebase-auth-compat.js': 'firebase/firebase-auth-compat.js',
 };
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
 };
 
 const server = http.createServer((req, res) => {
