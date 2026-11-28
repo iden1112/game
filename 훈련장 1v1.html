@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 84; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 85; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -5500,7 +5500,7 @@ function playerInput(dt) {
   }
   const pmin = p.stance === 'prone' ? -0.35 : -1.45;
   p.pitch = clamp(p.pitch, pmin, 1.45);
-  if (!live) return;
+  if (!live) { p.wish.set(0, 0, 0); p.sprint = false; p.trigger = false; p.jumpReq = false; return; } // 라운드 사이엔 멈춰요 (예전엔 마지막 누른 방향으로 계속 걸어갔어요)
   // 이동
   p.wish.set((K.KeyD ? 1 : 0) - (K.KeyA ? 1 : 0), 0, (K.KeyS ? 1 : 0) - (K.KeyW ? 1 : 0));
   if (frozen) p.wish.set(0, 0, 0);
