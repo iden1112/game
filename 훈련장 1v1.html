@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 82; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 83; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -7426,7 +7426,7 @@ function busWS(B, topic, onOpen, onFail) {
     if (closed) return;
     try { ws = new WebSocket(B.ws + '/room/' + topic); } catch (e) { if (!opened) onFail('주소 오류'); return; }
     const t = setTimeout(() => { if (ws.readyState !== 1) { try { ws.close(); } catch (e) {} } }, B.slow && !opened ? 25000 : 8000);
-    ws.onopen = () => { clearTimeout(t); tries = 0; if (!opened) { opened = true; onOpen(bus); } };
+    ws.onopen = () => { clearTimeout(t); tries = 0; if (!opened) { opened = true; onOpen(bus); } else if (typeof netOnReconnect === 'function') setTimeout(netOnReconnect, 200); }; // 끊겼다 다시 붙으면 라운드 다시 맞추기
     ws.onmessage = (e) => { try { busRecv(JSON.parse(e.data)); } catch (er) {} };
     ws.onclose = () => { clearTimeout(t); if (closed) return; if (!opened && ++tries >= (B.slow ? 4 : 2)) { onFail('접속 실패'); return; } if (!opened && B.slow) B.waking && B.waking(tries); setTimeout(open, 1500); };
     ws.onerror = () => {};
@@ -7983,6 +7983,18 @@ function snapSample(r, dt) {
   if (r.pos.distanceTo(_sn1) > 4) r.pos.copy(_sn1); else r.pos.lerp(_sn1, k);
   r.yaw += angDiff(r.yaw, y) * k; r.pitch = lerp(r.pitch, pi, k);
 }
+
+// 서버에 다시 붙었을 때: 그동안 놓친 라운드 정보를 다시 받아요
+function netOnReconnect() {
+  if (!NET.active || G.mode !== 'mp') return;
+  if (!NET.host) { NET.rreqT = performance.now(); netSend({ t: 'rreq' }); }
+  else if (NET.lastRound) NET.rsT = 0; // 방장은 바로 라운드 상태 알리기
+}
+// Render 무료 서버는 웹사이트 요청이 한동안 없으면 게임 중에도 잠들 수 있어요 → 방 서버로 하는 동안 4분마다 살짝 깨워요
+setInterval(() => {
+  if (!NET.active || !NET.bus || NET.mode !== 'srv' && !(NET.code && NET.code[0] === 'S')) return;
+  try { fetch(ROOM_SERVER.replace(/^ws/, 'http') + '/version.json?k=' + Date.now(), { cache: 'no-store', mode: 'no-cors' }).catch(() => {}); } catch (e) {}
+}, 240000);
 
 // ---------- 매 프레임 ----------
 function netUpdate(dt) {
