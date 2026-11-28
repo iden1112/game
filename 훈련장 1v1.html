@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 81; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 82; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -7793,7 +7793,7 @@ function netNextRound() {
     ps.forEach((p, i) => { const x = (i - (ps.length - 1) / 2) * gap + rand(-0.5, 0.5); spawns[p.id] = [+x.toFixed(2), z, z < 0 ? Math.PI : 0]; });
   }
   const m = { t: 'round', round, score: G.score, spawns, players: L.players, armor: L.armor ?? SETTINGS.armor, winTo: G.winTo, map, ffa: !!L.ffa };
-  netSend(m); applyRound(m);
+  NET.lastRound = m; netSend(m); applyRound(m);
 }
 function applyRound(m) {
   NET.active = true; G.mode = 'mp'; setMap(m.map || 'arena');
@@ -7874,6 +7874,18 @@ function netRecv(m) {
     case 'reject': clearInterval(NET.helloTimer); netStatus(m.why || '들어갈 수 없어요', 'bad'); NET.connected = false; break;
     case 'lobby': if (!NET.host) { NET.welcomed = true; clearInterval(NET.helloTimer); NET.lobby = m.lobby; renderLobby(); } break;
     case 'round': if (!NET.host) applyRound(m); break;
+    case 'rs': { // 방장의 라운드 상태 → 내가 다르면 맞추기
+      if (NET.host || G.mode !== 'mp') break;
+      if (m.r !== G.round || G.state === 'post' || G.state === 'menu') { if (!NET.rreqT || performance.now() - NET.rreqT > 1500) { NET.rreqT = performance.now(); netSend({ t: 'rreq' }); } }
+      else if (m.s === 'live' && G.state === 'pre') GAME.goLive();
+      break;
+    }
+    case 'rreq': { // 라운드 시작 메시지를 놓친 사람에게 다시 보내 줘요
+      if (!NET.host || !NET.lastRound) break;
+      netSend(Object.assign({}, NET.lastRound, { k: undefined }), from);
+      if (G.state === 'live') setTimeout(() => netSend({ t: 'go' }, from), 150);
+      break;
+    }
     case 'go': if (!NET.host && G.state === 'pre') GAME.goLive(); break;
     case 'rend': if (!NET.host) { G.score = m.score.slice(); GAME.showRoundEnd(m); } break;
     case 'over': if (!NET.host) { G.score = m.score.slice(); GAME.endMatch(); } break;
@@ -7975,6 +7987,12 @@ function snapSample(r, dt) {
 // ---------- 매 프레임 ----------
 function netUpdate(dt) {
   if (!NET.active) return;
+  // 라운드 맞추기: 방장이 1초마다 지금 라운드·상태를 알려요. 라운드 시작 메시지를 놓친 사람은 다시 받아 가요
+  // (놓치면 친구가 지난 라운드 자리에 멈춰 있고, 못 쏘고, 안 맞는 상태가 됐어요)
+  if (NET.host && G.mode === 'mp' && NET.lastRound && (G.state === 'pre' || G.state === 'live')) {
+    NET.rsT = (NET.rsT || 0) - dt;
+    if (NET.rsT <= 0) { NET.rsT = 1; netSend({ t: 'rs', r: G.round, s: G.state }); }
+  }
   NET.sendT -= dt;
   if (NET.sendT <= 0) {
     NET.sendT = NET.bus ? 1 / 20 : 1 / 24;
