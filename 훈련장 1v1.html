@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 77; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 78; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -9756,6 +9756,27 @@ function drawAccountRows() {
   });
   drawAccountRows();
   setInterval(drawAccountRows, 1000); // 로그인 상태가 바뀌면 다시 그려요
+}
+
+// ================= 레드 도트·홀로 조준점이 조준기 창 한가운데에 붙어 있게 =================
+// 화면을 빠르게 돌리면 총이 살짝 흔들리는데, 조준점은 화면 가운데에 고정이라 조준기 밖으로 빠져 보였어요.
+// 이제 조준기 창 가운데 위치를 매 프레임 계산해서 조준점을 거기에 그려요
+const _rf = new V3();
+{
+  const _uvm3 = updateViewmodel;
+  updateViewmodel = function (dt, hsp) {
+    _uvm3(dt, hsp);
+    const el = $('ret'), g = VM.gun, info = VM.info;
+    let x = 50, y = 50, px = false;
+    if (el && el.style.display === 'block' && g && info && info.sightY !== undefined && VM.cam) {
+      g.updateMatrixWorld(true);
+      _rf.set(0, info.sightY, -0.06); // 조준기 창 가운데 (총 기준)
+      g.localToWorld(_rf); _rf.project(VM.cam);
+      if (Math.abs(_rf.x) < 0.5 && Math.abs(_rf.y) < 0.5) { x = (_rf.x * 0.5 + 0.5) * innerWidth; y = (-_rf.y * 0.5 + 0.5) * innerHeight; px = true; }
+    }
+    UI('ret', 'style.left', px ? x.toFixed(1) + 'px' : '50%');
+    UI('ret', 'style.top', px ? y.toFixed(1) + 'px' : '50%');
+  };
 }
 
 // ================= 시작 =================
