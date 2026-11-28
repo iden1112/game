@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 79; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 80; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -5071,7 +5071,7 @@ class Actor {
   updateHeal(dt) {
     if (!(this.healT > 0)) return;
     // 달리기·점프·엎드리기/일어나기·자세 바꾸기·쏘기·떨어지기 하면 끊겨요
-    if (this.dead || this.sprint || !this.onGround || this.vault || this.proneLock > 0 || this.stance !== this.healStance || this.trigger) { this.cancelHeal(); return; }
+    if (this.dead || this.sprint || !this.onGround || this.vault || this.proneLock > 0 || (this.stance === 'prone') !== (this.healStance === 'prone') || this.trigger) { this.cancelHeal(); return; } // 앉기·일어서기는 괜찮고, 엎드리기·엎드린 데서 일어나기만 끊겨요
     this.healT -= dt;
     if (this.healT <= 0) { this.healT = 0; this.meds--; this.health = Math.min(MAX_HP, this.health + 75); if (this.isPlayer) { AU.beep && AU.beep(660, 0.12, 0.2); HUD.toast('체력 +75'); } }
   }
