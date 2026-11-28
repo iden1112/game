@@ -1059,7 +1059,7 @@ safe-buffer/index.js:
 */
 </script>
 <script>'use strict';
-const GAME_BUILD = 78; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
+const GAME_BUILD = 79; // 게임 버전 번호 (올릴 때마다 1씩 올려요)
 // ================= 기본 도구 =================
 const V3 = THREE.Vector3;
 const DEG = Math.PI / 180;
@@ -5747,6 +5747,8 @@ function updateViewmodel(dt, hsp) {
   pos.y -= vk * 0.22; pos.x += vk * 0.08; rz += vk * 0.9; rx -= vk * 0.5;
   // 기울이기
   rz += p.lean * 0.05;
+  // 조준 중엔 총을 조준선(가늠자 높이) 중심으로 기울여요 → 기울여도 조준점이 화면 가운데(총알 가는 곳)에서 안 벗어나요
+  if (ads > 0 && info && info.sightY !== undefined) { const sY = info.sightY; pos.x += sY * Math.sin(rz) * ads; pos.y += sY * (1 - Math.cos(rz)) * ads; }
   g.position.copy(pos); g.rotation.set(rx, ry, rz);
   fitForearm();
 }
